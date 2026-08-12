@@ -1,6 +1,7 @@
 using RainBot.Models;
 using RainBot.Services.Commands;
 using RainBot.Services.Context;
+using RainBot.Services.Fun;
 using RainBot.Services.Profile;
 using RainBot.Services.Safety;
 using RainBot.Services.Trigger;
@@ -22,6 +23,7 @@ public class MessageProcessor(
     WorkflowRunner workflowRunner,
     OutputFilter outputFilter,
     SendQueue sendQueue,
+    FunService funService,
     ILogger<MessageProcessor> logger)
 {
     private readonly GroupStateManager _states = states;
@@ -33,6 +35,7 @@ public class MessageProcessor(
     private readonly WorkflowRunner _workflowRunner = workflowRunner;
     private readonly OutputFilter _outputFilter = outputFilter;
     private readonly SendQueue _sendQueue = sendQueue;
+    private readonly FunService _fun = funService;
     private readonly ILogger<MessageProcessor> _logger = logger;
 
     public async Task ProcessAsync(IncomingMessage message, CancellationToken ct)
@@ -77,14 +80,21 @@ public class MessageProcessor(
             }
         }
 
-        // 5. 被动触发判定（@ + 冷却）
+        // 5. 随机互动（原版 RainBOT 娱乐功能：反驳/复读/OSM/反向艾特/叫哥，纯规则不耗 Token）
+        FunResult fun = await _fun.TryRespondAsync(message);
+        if (fun.Blocked)
+        {
+            return;
+        }
+
+        // 6. 被动触发判定（@ + 冷却）
         if (!_passiveTrigger.ShouldTrigger(message, now))
         {
             return;
         }
         _passiveTrigger.MarkTriggered(message.GroupOpenId, now);
 
-        // 6. 构建触发上下文（L2 画像召回进 Block F，下轮丢弃）
+        // 7. 构建触发上下文（L2 画像召回进 Block F，下轮丢弃）
         string recalled = message.IsAtRobot && !string.IsNullOrEmpty(message.SenderOpenId)
             ? await _profileRecaller.RecallAsync(message.GroupOpenId, message.SenderOpenId)
             : "";
@@ -98,7 +108,7 @@ public class MessageProcessor(
             AllowProfileUpdate = false
         };
 
-        // 7. 执行工作流（引用原消息回复）
+        // 8. 执行工作流（引用原消息回复）
         await _workflowRunner.RunAsync(ctx, message.MsgId, ct);
     }
 }

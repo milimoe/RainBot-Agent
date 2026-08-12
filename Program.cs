@@ -14,6 +14,7 @@ using RainBot.Services.Tools;
 using RainBot.Services.Topic;
 using RainBot.Services.Trigger;
 using RainBot.Services.Workflow;
+using RainBot.Services.Fun;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 DateTimeOffset appStartTime = DateTimeOffset.UtcNow;
@@ -72,6 +73,9 @@ builder.Services.AddSingleton<OutputFilter>();
 builder.Services.AddSingleton<CommandParser>();
 builder.Services.AddSingleton<TopicAnalyzer>();
 
+// ---------- 随机互动（原版 RainBOT 娱乐功能） ----------
+builder.Services.AddSingleton<FunService>();
+
 WebApplication app = builder.Build();
 
 // ---------- 初始化（建库、加载配置覆盖、注册工具执行器） ----------
@@ -99,7 +103,9 @@ using (IServiceScope scope = app.Services.CreateScope())
     logger.LogInformation("RainBot Agent 初始化完成，模型：{Model}", runtimeConfig.Config.Llm.Model);
 }
 
-// ---------- HTTP 端点（宝塔反代 / 健康检查） ----------
+// ---------- HTTP 端点（宝塔反代 / 健康检查 / OSM 图片静态托管） ----------
+app.UseStaticFiles(); // wwwroot/ 下的图片（如 osm/osm.jpg）可通过 http://地址/osm/osm.jpg 访问
+
 app.MapGet("/health", (BotStatus status, RuntimeConfig config) => Results.Json(new
 {
     status = status.WebSocketConnected ? "ok" : "ws_disconnected",

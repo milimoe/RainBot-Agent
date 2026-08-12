@@ -35,12 +35,28 @@ public class SendQueue : BackgroundService
     /// <summary>入队发送任务</summary>
     public ValueTask EnqueueAsync(SendTask task) => _channel.Writer.WriteAsync(task);
 
+    /// <summary>窥探待发送任务（仅测试用）</summary>
+    internal IReadOnlyList<SendTask> PeekPendingForTest()
+    {
+        List<SendTask> result = [];
+        while (_channel.Reader.TryRead(out SendTask? task))
+        {
+            result.Add(task);
+        }
+        return result;
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await foreach (SendTask task in _channel.Reader.ReadAllAsync(stoppingToken))
         {
             try
             {
+                // 延迟发送（复读/叫哥防"复读机"感知）
+                if (task.DelaySeconds > 0)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(task.DelaySeconds), stoppingToken);
+                }
                 if (await TrySendAsync(task, stoppingToken))
                 {
                     continue;
@@ -97,6 +113,9 @@ public class SendTask
 
     /// <summary>被动回复时引用原消息 ID</summary>
     public string? MsgId { get; init; }
+
+    /// <summary>延迟发送秒数（0 = 立即）</summary>
+    public int DelaySeconds { get; init; }
 
     public int RetryTimes { get; set; }
 }

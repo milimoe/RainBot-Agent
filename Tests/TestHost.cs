@@ -59,7 +59,14 @@ public static class TestHost
         services.AddSingleton<Distiller>();
         services.AddSingleton<BlockComposer>();
         services.AddSingleton<WatermarkManager>();
-        services.AddSingleton<CommandParser>();        services.AddSingleton<IHttpClientFactory>(_ => new FakeHttpClientFactory(llmResponder));
+        services.AddSingleton<CommandParser>();
+        services.AddMemoryCache();
+        services.AddSingleton(Options.Create(new BotConfig()));
+        services.AddScoped<Services.QQ.QQBotService>();
+        services.AddSingleton<Services.QQ.BotStatus>();
+        services.AddSingleton<SendQueue>();
+        services.AddSingleton<Services.Fun.FunService>();
+        services.AddSingleton<IHttpClientFactory>(_ => new FakeHttpClientFactory(llmResponder));
 
         ServiceProvider provider = services.BuildServiceProvider();
         return (provider, dbPath);
@@ -104,11 +111,12 @@ public class FakeHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage
 public static class TestHelpers
 {
     /// <summary>构造一条入站群消息</summary>
-    public static IncomingMessage Msg(string group, string sender, string content, bool isAt = false, string? msgId = null, bool isAdmin = false) => new()
+    public static IncomingMessage Msg(string group, string sender, string content, bool isAt = false, string? msgId = null, bool isAdmin = false, string? username = null) => new()
     {
         MsgId = msgId ?? Guid.NewGuid().ToString("N"),
         GroupOpenId = group,
         SenderOpenId = sender,
+        Username = username,
         Content = content,
         IsAtRobot = isAt,
         IsAdmin = isAdmin,

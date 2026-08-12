@@ -27,6 +27,9 @@ public class IncomingMessage
     /// <summary>发送者 OpenID</summary>
     public required string SenderOpenId { get; init; }
 
+    /// <summary>发送者昵称/群名片（官方 API 提供，可能为空）</summary>
+    public string? Username { get; init; }
+
     /// <summary>消息内容（含 <@!xxx> 等富文本标签）</summary>
     public required string Content { get; init; }
 

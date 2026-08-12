@@ -106,6 +106,18 @@ public class QQBotService(IOptions<BotConfig> botConfig, ILogger<QQBotService> l
         };
     }
 
+    /// <summary>发送群图片（msg_type=7，需先上传媒体拿到 file_info）</summary>
+    public async Task SendGroupImageAsync(string groupOpenId, string fileInfo, string? msgId = null)
+    {
+        Dictionary<string, object> body = new()
+        {
+            { "msg_type", 7 },
+            { "media", new Dictionary<string, object> { ["file_info"] = fileInfo } }
+        };
+        if (!string.IsNullOrEmpty(msgId)) body.Add("msg_id", msgId);
+        await PostJsonAsync($"{BotConfig.ApiHost}/v2/groups/{groupOpenId}/messages", body);
+    }
+
     private async Task PostJsonAsync(string url, Dictionary<string, object> body)
     {
         string accessToken = await GetAccessTokenAsync();

@@ -30,6 +30,10 @@ public class Author
 
     [JsonPropertyName("member_openid")]
     public string MemberOpenId { get; set; } = "";
+
+    /// <summary>群名片/昵称（官方 API 提供，可能为空）</summary>
+    [JsonPropertyName("username")]
+    public string Username { get; set; } = "";
 }
 
 public class Attachment

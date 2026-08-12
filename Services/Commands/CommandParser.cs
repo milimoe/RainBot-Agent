@@ -5,7 +5,6 @@ using RainBot.Services.Storage;
 using RainBot.Services.Trigger;
 
 namespace RainBot.Services.Commands;
-
 /// <summary>
 /// 指令解析与执行：
 /// - 用户指令：/忘掉我（清除自己的 L0 画像）
@@ -38,6 +37,7 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
         {
             "忘掉我" or "forgetme" => new ParsedCommand(CommandKind.ForgetMe),
             "status" => new ParsedCommand(CommandKind.Status),
+            "fun" or "娱乐" => new ParsedCommand(CommandKind.FunStatus),
             "admin" => ParseAdmin(args),
             _ => null
         };
@@ -79,6 +79,10 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
             case CommandKind.Status:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
                 return await BuildStatusAsync(groupOpenId);
+
+            case CommandKind.FunStatus:
+                // 随机互动状态（所有人可查看）
+                return BuildFunStatusAsync();
 
             case CommandKind.AdminHelp:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
@@ -175,12 +179,26 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
         List<string> admins = await _config.GetAdminOpenIdsAsync();
         return $"机器人：雨 🌧️\n本群消息 {state.TotalMessages} 条，缓存命中率 {hitRate:0.0%}\n管理员 {admins.Count} 人，静默：{(state.Muted == true ? "是" : "否")}，降级：{(state.Degraded ? "是" : "否")}";
     }
+
+    private string BuildFunStatusAsync()
+    {
+        FunConfig fun = _config.Config.Fun;
+        string osm = fun.EnableOsm && fun.OsmImages.Count > 0 ? $"开启（{fun.OsmProbability}%，{fun.OsmImages.Count} 张图）" : "关闭（未配置图片）";
+        return $"随机互动状态：\n" +
+            $"反驳是：{(fun.EnableReplyYes ? $"开启（{fun.ReplyYesProbability}%）" : "关闭")}\n" +
+            $"反驳不：{(fun.EnableReplyNo ? $"开启（{fun.ReplyNoProbability}%）" : "关闭")}\n" +
+            $"复读：{(fun.EnableRepeat ? $"开启（{fun.RepeatProbability}%，延迟 {fun.RepeatDelayMinSeconds}-{fun.RepeatDelayMaxSeconds}s）" : "关闭")}\n" +
+            $"OSM：{osm}\n" +
+            $"反向艾特：{(fun.EnableReverseAt ? $"开启（{fun.ReverseAtProbability}%）" : "关闭")}\n" +
+            $"叫哥：{(fun.EnableCallBrother ? $"开启（{fun.CallBrotherProbability}%）" : "关闭")}";
+    }
 }
 
 public enum CommandKind
 {
     ForgetMe,
     Status,
+    FunStatus,
     AdminHelp,
     AdminList,
     AdminSet,

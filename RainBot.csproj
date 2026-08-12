@@ -19,6 +19,7 @@
     <Content Remove="Tests\**" />
     <None Remove="Tests\**" />
     <EmbeddedResource Remove="Tests\**" />
+    <InternalsVisibleTo Include="RainBot.Tests" />
   </ItemGroup>
 
   <ItemGroup>

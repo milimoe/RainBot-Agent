@@ -17,6 +17,7 @@
 | 群友画像 | L0 全量画像存库不进上下文；L1 锚点 Top 5 常驻（<20 tokens）；L2 触发式召回进尾部块，下轮即弃 |
 | ReAct 工具 | `web_search`（10 分钟话题缓存）、`get_user_profile`、`update_user_profile`（仅暖群）、管理员工具；轮次上限防死循环 |
 | 风控 | 输入（广告/涉政/引流不回应）、输出（openid 泄露替换、≤2 行截断）、平台频控（15 qpm 留余量）、成本监控（缓存命中率 <60% 告警） |
+| 随机互动 | 移植原版 RainBOT：随机反驳是/不、随机复读（延迟防刷屏）、随机OSM（梗图）、反向艾特、随机叫哥；纯规则概率触发不耗 Token，一次消息最多命中一个（防刷屏） |
 | 人设系统 | `Persona/persona.md` 随时改写，保存即热重载，无需重启 |
 
 ## 快速开始
@@ -60,6 +61,15 @@ curl http://localhost:8080/health   # {"status":"ok"} 即连接成功
 | `Llm.Model` | deepseek-v4-flash | 单一模型名 |
 | `PersonaPath` / `BotName` | Persona/persona.md / 雨 | 人设文件与机器人名 |
 | `Bot.OpenId` | 空 | 机器人群内 OpenID（全量消息 @ 判定，不填自动学习） |
+| `Fun.EnableReplyYes` / `ReplyYesProbability` | true / 40 | 随机反驳是（消息=「是」时概率反驳「是你的头」） |
+| `Fun.EnableReplyNo` / `ReplyNoProbability` | true / 16 | 随机反驳不（词表抬杠：不/没/是/别/太/可以/能/可能/要/想） |
+| `Fun.ReplyNoMemeUrl` / `ReplyNoMemeProbability` | hguofichp.cn:10086 / 30 | 反驳不命中时按该概率改用烂梗 API 回复（原版行为），失败自动回退词表；URL 置空可关闭 |
+| `Fun.EnableRepeat` / `RepeatProbability` | true / 7 | 随机复读（延迟 30-80s，50% 加 desuwa～） |
+| `Fun.EnableOsm` / `OsmProbability` / `OsmImages` | true / 2 / [] | 随机 OSM 梗图（URL 列表，空则禁用，见下） |
+| `Fun.EnableReverseAt` / `ReverseAtProbability` | true / 70 | 反向艾特（@ 机器人时把 @ 弹回发送者，不阻断 AI 回复） |
+| `Fun.EnableCallBrother` / `CallBrotherProbability` | true / 4 | 随机叫哥（@+名字截取+随机后缀，延迟 30s） |
+
+**OSM 图片配置**：把梗图放入 `wwwroot/osm/`（如 `osm.jpg`、`osm.gif`、`newosm.jpg`），然后在 `Fun.OsmImages` 填公网访问地址（如 `http://你的域名/osm/osm.jpg`），或直接填任意公网图片 URL。未配置图片时该功能自动禁用。
 
 ## 指令表（管理员为机器人自我维护的 OpenID 列表，与群管理员无关）
 
@@ -67,6 +77,7 @@ curl http://localhost:8080/health   # {"status":"ok"} 即连接成功
 | :--- | :--- | :--- |
 | `/忘掉我` | 所有人 | 清除自己的画像 |
 | `/status` | 管理员 | 本群运行状态 |
+| `/fun` | 所有人 | 随机互动开关与概率一览 |
 | `/admin list` | 管理员 | 列出全部参数 |
 | `/admin set 参数 值` | 管理员 | 热改参数（即时生效、落库持久化） |
 | `/admin mute [分钟]` / `/admin unmute` | 管理员 | 一键静默 / 解除 |
@@ -120,6 +131,7 @@ Services/Llm/     DeepSeek 客户端、ReAct 循环、缓存监控
 Services/Profile/ 画像（L0/L1/L2）、锚点、召回
 Services/Tools/   工具注册表与执行器
 Services/Search/  DuckDuckGo 搜索实现
+Services/Fun/     随机互动（反驳/复读/OSM/反向艾特/叫哥）
 Services/Safety/  输入/输出风控
 Services/Commands/ 指令解析与执行
 Persona/persona.md 人设（热重载）

@@ -18,6 +18,9 @@ public class RainConfig
     /// <summary>风控与平台合规配置</summary>
     public SafetyConfig Safety { get; set; } = new();
 
+    /// <summary>随机互动娱乐配置（移植自原版 RainBOT）</summary>
+    public FunConfig Fun { get; set; } = new();
+
     /// <summary>存储配置</summary>
     public StorageConfig Storage { get; set; } = new();
 
@@ -135,4 +138,52 @@ public class StorageConfig
 {
     /// <summary>SQLite 数据库文件路径（相对运行目录）</summary>
     public string SqlitePath { get; set; } = "Data/rainbot.db";
+}
+
+/// <summary>
+/// 随机互动配置（原版 RainBOT 概率：反驳是 40 / 反驳不 16 / 复读 7 / OSM 2 / 反向艾特 70 / 叫哥 4）
+/// </summary>
+public class FunConfig
+{
+    /// <summary>随机反驳是：消息 ==「是」时概率反驳</summary>
+    public bool EnableReplyYes { get; set; } = true;
+    public int ReplyYesProbability { get; set; } = 40;
+
+    /// <summary>随机反驳不：词表抬杠（不/没/是/别/太/可以/能/可能/要/想）</summary>
+    public bool EnableReplyNo { get; set; } = true;
+    public int ReplyNoProbability { get; set; } = 16;
+
+    /// <summary>
+    /// 反驳不命中时，以该概率改用烂梗 API 回复（另一种随机表现形式，原版 30%）。
+    /// URL 为空则始终用词表。
+    /// </summary>
+    public string ReplyNoMemeUrl { get; set; } = "https://hguofichp.cn:10086/machine/getRandOne";
+    public int ReplyNoMemeProbability { get; set; } = 30;
+
+    /// <summary>随机复读：延迟后原样复读（50% 概率加 desuwa～）</summary>
+    public bool EnableRepeat { get; set; } = true;
+    public int RepeatProbability { get; set; } = 7;
+    public int RepeatDelayMinSeconds { get; set; } = 30;
+    public int RepeatDelayMaxSeconds { get; set; } = 80;
+    /// <summary>复读忽略内容（含这些词的文本不复读）</summary>
+    public List<string> RepeatIgnoreWords { get; set; } = [];
+
+    /// <summary>随机 OSM：概率发送一张 OSM 梗图（图片 URL 列表，空则功能自动禁用）</summary>
+    public bool EnableOsm { get; set; } = true;
+    public int OsmProbability { get; set; } = 2;
+    public List<string> OsmImages { get; set; } = [];
+
+    /// <summary>反向艾特：@ 机器人时把 @ 弹回发送者（不阻断 AI 回复）</summary>
+    public bool EnableReverseAt { get; set; } = true;
+    public int ReverseAtProbability { get; set; } = 70;
+    /// <summary>反向艾特忽略用户 openid（完整或前 8 位短 ID）</summary>
+    public List<string> ReverseAtIgnoreOpenIds { get; set; } = [];
+
+    /// <summary>随机叫哥：@ 发送者 + 名字随机截取 + 随机后缀</summary>
+    public bool EnableCallBrother { get; set; } = true;
+    public int CallBrotherProbability { get; set; } = 4;
+    /// <summary>叫哥延迟（秒，原版用复读延迟区间）</summary>
+    public int CallBrotherDelaySeconds { get; set; } = 30;
+    /// <summary>叫哥忽略用户 openid（完整或前 8 位短 ID）</summary>
+    public List<string> CallBrotherIgnoreOpenIds { get; set; } = [];
 }

@@ -152,6 +152,23 @@ public class RuntimeConfig
                 case "Context.DistillMaxChars": _config.Context.DistillMaxChars = ParseInt(value, nameof(_config.Context.DistillMaxChars)); return true;
                 case "Safety.MaxQpmPerGroup": _config.Safety.MaxQpmPerGroup = ParseInt(value, nameof(_config.Safety.MaxQpmPerGroup)); return true;
                 case "Safety.DedupeWindowSeconds": _config.Safety.DedupeWindowSeconds = ParseInt(value, nameof(_config.Safety.DedupeWindowSeconds)); return true;
+                case "Fun.EnableReplyYes": _config.Fun.EnableReplyYes = ParseBool(value, nameof(_config.Fun.EnableReplyYes)); return true;
+                case "Fun.ReplyYesProbability": _config.Fun.ReplyYesProbability = ParseInt(value, nameof(_config.Fun.ReplyYesProbability)); return true;
+                case "Fun.EnableReplyNo": _config.Fun.EnableReplyNo = ParseBool(value, nameof(_config.Fun.EnableReplyNo)); return true;
+                case "Fun.ReplyNoProbability": _config.Fun.ReplyNoProbability = ParseInt(value, nameof(_config.Fun.ReplyNoProbability)); return true;
+                case "Fun.ReplyNoMemeUrl": _config.Fun.ReplyNoMemeUrl = value; return true;
+                case "Fun.ReplyNoMemeProbability": _config.Fun.ReplyNoMemeProbability = ParseInt(value, nameof(_config.Fun.ReplyNoMemeProbability)); return true;
+                case "Fun.EnableRepeat": _config.Fun.EnableRepeat = ParseBool(value, nameof(_config.Fun.EnableRepeat)); return true;
+                case "Fun.RepeatProbability": _config.Fun.RepeatProbability = ParseInt(value, nameof(_config.Fun.RepeatProbability)); return true;
+                case "Fun.RepeatDelayMinSeconds": _config.Fun.RepeatDelayMinSeconds = ParseInt(value, nameof(_config.Fun.RepeatDelayMinSeconds)); return true;
+                case "Fun.RepeatDelayMaxSeconds": _config.Fun.RepeatDelayMaxSeconds = ParseInt(value, nameof(_config.Fun.RepeatDelayMaxSeconds)); return true;
+                case "Fun.EnableOsm": _config.Fun.EnableOsm = ParseBool(value, nameof(_config.Fun.EnableOsm)); return true;
+                case "Fun.OsmProbability": _config.Fun.OsmProbability = ParseInt(value, nameof(_config.Fun.OsmProbability)); return true;
+                case "Fun.EnableReverseAt": _config.Fun.EnableReverseAt = ParseBool(value, nameof(_config.Fun.EnableReverseAt)); return true;
+                case "Fun.ReverseAtProbability": _config.Fun.ReverseAtProbability = ParseInt(value, nameof(_config.Fun.ReverseAtProbability)); return true;
+                case "Fun.EnableCallBrother": _config.Fun.EnableCallBrother = ParseBool(value, nameof(_config.Fun.EnableCallBrother)); return true;
+                case "Fun.CallBrotherProbability": _config.Fun.CallBrotherProbability = ParseInt(value, nameof(_config.Fun.CallBrotherProbability)); return true;
+                case "Fun.CallBrotherDelaySeconds": _config.Fun.CallBrotherDelaySeconds = ParseInt(value, nameof(_config.Fun.CallBrotherDelaySeconds)); return true;
                 case "PersonaPath": _config.PersonaPath = value; return true;
                 case "BotName": _config.BotName = value; return true;
                 case "Bot.OpenId": _config.BotOpenId = value; return true;
@@ -183,6 +200,15 @@ public class RuntimeConfig
         if (!double.TryParse(value.Trim(), out double result) || result <= 0)
         {
             throw new FormatException($"{name} 需要正数");
+        }
+        return result;
+    }
+
+    private static bool ParseBool(string value, string name)
+    {
+        if (!bool.TryParse(value.Trim(), out bool result))
+        {
+            throw new FormatException($"{name} 需要 true 或 false");
         }
         return result;
     }
@@ -225,6 +251,12 @@ public class RuntimeConfig
         "Context.MaxAnchorCount", "Context.MinAnchorCount", "Context.DistillKeepMessages",
         "Context.DegradeResetSilenceMinutes", "Context.CacheAlertThreshold", "Context.DistillMaxChars",
         "Safety.MaxQpmPerGroup", "Safety.DedupeWindowSeconds",
+        "Fun.EnableReplyYes", "Fun.ReplyYesProbability", "Fun.EnableReplyNo", "Fun.ReplyNoProbability",
+        "Fun.ReplyNoMemeUrl", "Fun.ReplyNoMemeProbability",
+        "Fun.EnableRepeat", "Fun.RepeatProbability", "Fun.RepeatDelayMinSeconds", "Fun.RepeatDelayMaxSeconds",
+        "Fun.EnableOsm", "Fun.OsmProbability",
+        "Fun.EnableReverseAt", "Fun.ReverseAtProbability",
+        "Fun.EnableCallBrother", "Fun.CallBrotherProbability", "Fun.CallBrotherDelaySeconds",
         "PersonaPath", "BotName", "Bot.OpenId"
     ];
 }
