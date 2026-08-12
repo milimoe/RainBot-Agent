@@ -1,0 +1,123 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using RainBot.Models;
+using RainBot.Services.Commands;
+using RainBot.Services.Config;
+using RainBot.Services.Context;
+using RainBot.Services.Llm;
+using RainBot.Services.Persona;
+using RainBot.Services.Profile;
+using RainBot.Services.Safety;
+using RainBot.Services.Storage;
+using RainBot.Services.Tools;
+using RainBot.Services.Trigger;
+
+namespace RainBot.Tests;
+
+/// <summary>
+/// 测试宿主：用 ServiceCollection 组装真实服务（数据库用临时文件、LLM 用假 HTTP 处理器），
+/// 便于对核心逻辑做黑盒断言。
+/// </summary>
+public static class TestHost
+{
+    public static (ServiceProvider Provider, string DbPath) Build(Func<HttpRequestMessage, HttpResponseMessage>? llmResponder = null)
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"rainbot-test-{Guid.NewGuid():N}.db");
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Rain:Storage:SqlitePath"] = dbPath
+            })
+            .Build();
+
+        ServiceCollection services = new();
+        services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
+        services.AddSingleton(configuration);
+        services.AddSingleton<IConfiguration>(configuration);
+        services.AddSingleton(Options.Create(new RainConfig()));
+        services.AddSingleton<Database>();
+        services.AddSingleton<RuntimeConfig>();
+        services.AddSingleton<PersonaLoader>();
+        services.AddSingleton<GroupStateManager>();
+        services.AddSingleton<Services.QQ.BotIdentityResolver>();
+        services.AddSingleton<HistoryStore>();
+        services.AddSingleton<AnchorManager>();
+        services.AddSingleton<ProfileRecaller>();
+        services.AddSingleton<ToolRegistry>();
+        services.AddSingleton<DeepSeekClient>();
+        services.AddSingleton<ReActLoop>();
+        services.AddSingleton<InputFilter>();
+        services.AddSingleton<OutputFilter>();
+        services.AddSingleton<PassiveTrigger>();
+        services.AddSingleton<ActiveTrigger>();
+        services.AddSingleton<Distiller>();
+        services.AddSingleton<BlockComposer>();
+        services.AddSingleton<WatermarkManager>();
+        services.AddSingleton<CommandParser>();        services.AddSingleton<IHttpClientFactory>(_ => new FakeHttpClientFactory(llmResponder));
+
+        ServiceProvider provider = services.BuildServiceProvider();
+        return (provider, dbPath);
+    }
+
+    public static async Task<ServiceProvider> BuildReadyAsync(Func<HttpRequestMessage, HttpResponseMessage>? llmResponder = null)
+    {
+        (ServiceProvider provider, _) = Build(llmResponder);
+        await provider.GetRequiredService<Database>().InitializeAsync();
+        await provider.GetRequiredService<RuntimeConfig>().InitializeAsync();
+        return provider;
+    }
+}
+
+/// <summary>假 HTTP 客户端工厂：所有请求走同一应答器（用于 DeepSeek 模拟）</summary>
+public class FakeHttpClientFactory(Func<HttpRequestMessage, HttpResponseMessage>? responder) : IHttpClientFactory
+{
+    private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder = responder ?? DefaultResponder;
+
+    public HttpClient CreateClient(string name) => new(new FakeHttpMessageHandler(_responder))
+    {
+        Timeout = TimeSpan.FromSeconds(5)
+    };
+
+    private static HttpResponseMessage DefaultResponder(HttpRequestMessage request)
+    {
+        // 默认返回一个简单的 LLM 文本回复（含用量统计）
+        string json = """{"choices":[{"message":{"role":"assistant","content":"你好呀 🌧️"}}],"usage":{"prompt_tokens":100,"completion_tokens":8,"prompt_cache_hit_tokens":90,"prompt_cache_miss_tokens":10}}""";
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+    }
+}
+
+public class FakeHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        => Task.FromResult(responder(request));
+}
+
+public static class TestHelpers
+{
+    /// <summary>构造一条入站群消息</summary>
+    public static IncomingMessage Msg(string group, string sender, string content, bool isAt = false, string? msgId = null, bool isAdmin = false) => new()
+    {
+        MsgId = msgId ?? Guid.NewGuid().ToString("N"),
+        GroupOpenId = group,
+        SenderOpenId = sender,
+        Content = content,
+        IsAtRobot = isAt,
+        IsAdmin = isAdmin,
+        ReceivedAt = DateTimeOffset.UtcNow
+    };
+
+    public static string LlmTextResponse(string content, int hit = 90, int miss = 10) => JsonSerializer.Serialize(new
+    {
+        choices = new[] { new { message = new { role = "assistant", content } } },
+        usage = new { prompt_tokens = hit + miss, completion_tokens = 8, prompt_cache_hit_tokens = hit, prompt_cache_miss_tokens = miss }
+    });
+}

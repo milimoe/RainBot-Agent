@@ -1,0 +1,22 @@
+# 运行时数据
+Data/
+*.db
+*.db-wal
+*.db-shm
+
+# 构建产物
+bin/
+obj/
+publish/
+*.user
+
+# 凭据（绝不提交）
+appsettings.Production.json
+appsettings.Development.json
+.env
+
+# IDE
+.vs/
+.vscode/
+.idea/
+.*/
