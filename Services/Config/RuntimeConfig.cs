@@ -170,6 +170,7 @@ public class RuntimeConfig
                 case "Fun.CallBrotherProbability": _config.Fun.CallBrotherProbability = ParseInt(value, nameof(_config.Fun.CallBrotherProbability)); return true;
                 case "Fun.CallBrotherDelaySeconds": _config.Fun.CallBrotherDelaySeconds = ParseInt(value, nameof(_config.Fun.CallBrotherDelaySeconds)); return true;
                 case "PersonaPath": _config.PersonaPath = value; return true;
+                case "SayNoPath": _config.SayNoPath = value; return true;
                 case "BotName": _config.BotName = value; return true;
                 case "Bot.OpenId": _config.BotOpenId = value; return true;
                 default:
@@ -257,6 +258,6 @@ public class RuntimeConfig
         "Fun.EnableOsm", "Fun.OsmProbability",
         "Fun.EnableReverseAt", "Fun.ReverseAtProbability",
         "Fun.EnableCallBrother", "Fun.CallBrotherProbability", "Fun.CallBrotherDelaySeconds",
-        "PersonaPath", "BotName", "Bot.OpenId"
+        "PersonaPath", "SayNoPath", "BotName", "Bot.OpenId"
     ];
 }

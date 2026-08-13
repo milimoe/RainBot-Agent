@@ -18,11 +18,12 @@ namespace RainBot.Services.Fun;
 /// - 移除原版 SC 记分、控制台彩色日志；
 /// - 概率/开关/延迟全部可热改（/admin set Fun.*），OSM 图片用 URL 列表配置。
 /// </summary>
-public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService qqBotService, IHttpClientFactory httpClientFactory, ILogger<FunService> logger)
+public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService qqBotService, SayNoWordsService sayNoWords, IHttpClientFactory httpClientFactory, ILogger<FunService> logger)
 {
     private readonly RuntimeConfig _config = config;
     private readonly SendQueue _sendQueue = sendQueue;
     private readonly QQBotService _qqBotService = qqBotService;
+    private readonly SayNoWordsService _sayNoWords = sayNoWords;
     private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
     private readonly ILogger<FunService> _logger = logger;
 
@@ -92,7 +93,7 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService 
         return FunResult.HandledAndBlock;
     }
 
-    /// <summary>随机反驳不：词表抬杠（不/没/是/别/太/可以/能/可能/要/想）</summary>
+    /// <summary>随机反驳不：词表抬杠（词表来自 sayno.json，热更新）</summary>
     private bool TryReplyNo(string text, out string? reply)
     {
         reply = null;
@@ -100,44 +101,48 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService 
         {
             return false;
         }
+        SayNoWordSet words = _sayNoWords.Current;
         int p;
 
         // 1. "不"后第一个字（后跟忽略词则不反驳）
         p = text.IndexOf("不", StringComparison.Ordinal);
-        if (p >= 0 && p + 1 < text.Length && !SayNoWords.IgnoreTriggerAfterNo.Any(text[(p + 1)..].Contains))
+        if (p >= 0 && p + 1 < text.Length && !words.IgnoreTriggerAfterNo.Any(text[(p + 1)..].Contains))
         {
-            reply = Format(SayNoWords.ReplyNoWords, text[p + 1]);
+            reply = Format(words.SayNoWords, text[p + 1]);
             return true;
         }
         // 2. "没"后第一个字
         p = text.IndexOf("没", StringComparison.Ordinal);
         if (p >= 0 && p + 1 < text.Length)
         {
-            reply = Format(SayNoWords.SayDontHaveWords, text[p + 1]);
+            reply = Format(words.SayDontHaveWords, text[p + 1]);
             return true;
         }
         // 3. "是"后跟 TriggerAfterYes 词才反驳
         p = text.IndexOf("是", StringComparison.Ordinal);
-        if (p >= 0 && p + 1 < text.Length && SayNoWords.TriggerAfterYes.Any(text[(p + 1)..].Contains))
+        if (p >= 0 && p + 1 < text.Length && words.TriggerAfterYes.Any(text[(p + 1)..].Contains))
         {
-            reply = Pick(SayNoWords.SayNotYesWords);
+            reply = Pick(words.SayNotYesWords);
             return true;
         }
         // 4. "别"后第一个字（后跟 WillNotSayNo 不反驳）
         p = text.IndexOf("别", StringComparison.Ordinal);
-        if (p >= 0 && p + 1 < text.Length && !SayNoWords.WillNotSayNo.Any(text[(p + 1)..].Contains))
+        if (p >= 0 && p + 1 < text.Length && !words.WillNotSayNo.Any(text[(p + 1)..].Contains))
         {
-            reply = Format(SayNoWords.SayDontWords, text[p + 1]);
+            reply = Format(words.SayDontWords, text[p + 1]);
             return true;
         }
-        // 5. "太X了"
-        p = text.IndexOf("太", StringComparison.Ordinal);
-        if (p >= 0 && p + 2 < text.Length && text[p + 2] == '了')
+        // 5. TriggerBeforeNo 词（如"太"）："太X了" → 特殊反驳
+        foreach (string prefix in words.TriggerBeforeNo)
         {
-            reply = Pick(SayNoWords.SaySpecialNoWords) + text[p + 1];
-            return true;
+            p = text.IndexOf(prefix, StringComparison.Ordinal);
+            if (p >= 0 && p + prefix.Length + 1 < text.Length && text[p + prefix.Length + 1] == '了')
+            {
+                reply = Pick(words.SaySpecialNoWords) + text[p + prefix.Length];
+                return true;
+            }
         }
-        // 6. 可以 / 可能 / 能（半对半反驳）
+        // 6. 可以 / 可能 / 能（半对半反驳；"能"受 IgnoreTriggerBeforeCan 约束）
         if (text.Contains("可以", StringComparison.Ordinal) && !text.Contains('不'))
         {
             reply = Random.Shared.Next(2) == 0 ? "可以" : "不可以";
@@ -148,7 +153,7 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService 
             reply = Random.Shared.Next(2) == 0 ? "可能" : "不可能";
             return true;
         }
-        if (text.Contains("能", StringComparison.Ordinal) && !text.Contains('不'))
+        if (text.Contains("能", StringComparison.Ordinal) && !text.Contains('不') && !words.IgnoreTriggerBeforeCan.Any(text.Contains))
         {
             reply = Random.Shared.Next(2) == 0 ? "能" : "不能";
             return true;
@@ -156,12 +161,12 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService 
         // 7. 要 / 想
         if (text.Contains("要", StringComparison.Ordinal) && !text.Contains('不'))
         {
-            reply = Pick(SayNoWords.SayWantWords);
+            reply = Pick(words.SayWantWords);
             return true;
         }
         if (text.Contains("想", StringComparison.Ordinal) && !text.Contains('不'))
         {
-            reply = Pick(SayNoWords.SayThinkWords);
+            reply = Pick(words.SayThinkWords);
             return true;
         }
         return false;

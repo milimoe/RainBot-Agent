@@ -62,7 +62,8 @@ curl http://localhost:8080/health   # {"status":"ok"} 即连接成功
 | `PersonaPath` / `BotName` | Persona/persona.md / 雨 | 人设文件与机器人名 |
 | `Bot.OpenId` | 空 | 机器人群内 OpenID（全量消息 @ 判定，不填自动学习） |
 | `Fun.EnableReplyYes` / `ReplyYesProbability` | true / 40 | 随机反驳是（消息=「是」时概率反驳「是你的头」） |
-| `Fun.EnableReplyNo` / `ReplyNoProbability` | true / 16 | 随机反驳不（词表抬杠：不/没/是/别/太/可以/能/可能/要/想） |
+| `Fun.EnableReplyNo` / `ReplyNoProbability` | true / 16 | 随机反驳不（词表抬杠，词表存于 `sayno.json` 可热更新） |
+| `SayNoPath` | sayno.json | 反驳不词表 JSON 路径（缺失自动生成默认，编辑保存即热重载） |
 | `Fun.ReplyNoMemeUrl` / `ReplyNoMemeProbability` | hguofichp.cn:10086 / 30 | 反驳不命中时按该概率改用烂梗 API 回复（原版行为），失败自动回退词表；URL 置空可关闭 |
 | `Fun.EnableRepeat` / `RepeatProbability` | true / 7 | 随机复读（延迟 30-80s，50% 加 desuwa～） |
 | `Fun.EnableOsm` / `OsmProbability` / `OsmImages` | true / 2 / [] | 随机 OSM 梗图（URL 列表，空则禁用，见下） |
@@ -70,6 +71,8 @@ curl http://localhost:8080/health   # {"status":"ok"} 即连接成功
 | `Fun.EnableCallBrother` / `CallBrotherProbability` | true / 4 | 随机叫哥（@+名字截取+随机后缀，延迟 30s） |
 
 **OSM 图片配置**：把梗图放入 `wwwroot/osm/`（如 `osm.jpg`、`osm.gif`、`newosm.jpg`），然后在 `Fun.OsmImages` 填公网访问地址（如 `http://你的域名/osm/osm.jpg`），或直接填任意公网图片 URL。未配置图片时该功能自动禁用。
+
+**反驳不词表（sayno.json）**：首次运行自动生成默认词表文件（13 张表，字段名与原版 RainBOT 一致：`Trigger`、`TriggerBeforeNo`、`IgnoreTriggerAfterNo`、`IgnoreTriggerBeforeCan`、`TriggerAfterYes`、`WillNotSayNo`、`SayNoWords`、`SayDontHaveWords`、`SayNotYesWords`、`SayDontWords`、`SayWantWords`、`SayThinkWords`、`SaySpecialNoWords`）。直接编辑保存即热重载，也可用 `/admin sayno` 指令增删（写回 JSON）。
 
 ## 指令表（管理员为机器人自我维护的 OpenID 列表，与群管理员无关）
 
@@ -84,6 +87,8 @@ curl http://localhost:8080/health   # {"status":"ok"} 即连接成功
 | `/admin stats` | 管理员 | 本群消息量与缓存命中率 |
 | `/admin admin add|remove openid` | 管理员 | 维护管理员列表 |
 | `/admin forget 短id` | 管理员 | 清除指定用户画像 |
+| `/admin sayno list` | 管理员 | 列出反驳不全部词表 |
+| `/admin sayno 表名 add\|remove 词` | 管理员 | 增删词表词条（写回 sayno.json，即时生效） |
 | `/admin help` | 管理员 | 帮助 |
 
 ## 架构速览

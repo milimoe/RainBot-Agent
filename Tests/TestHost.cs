@@ -65,6 +65,7 @@ public static class TestHost
         services.AddScoped<Services.QQ.QQBotService>();
         services.AddSingleton<Services.QQ.BotStatus>();
         services.AddSingleton<SendQueue>();
+        services.AddSingleton<Services.Fun.SayNoWordsService>();
         services.AddSingleton<Services.Fun.FunService>();
         services.AddSingleton<IHttpClientFactory>(_ => new FakeHttpClientFactory(llmResponder));
 

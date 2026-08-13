@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using RainBot.Models;
 using RainBot.Services.Config;
+using RainBot.Services.Fun;
 using RainBot.Services.Storage;
 using RainBot.Services.Trigger;
 
@@ -11,14 +12,29 @@ namespace RainBot.Services.Commands;
 /// - 管理员指令：/admin list | set | mute | unmute | stats | admin add/remove | forget | help
 /// - /status：状态查看（管理员）
 /// </summary>
-public class CommandParser(RuntimeConfig config, GroupStateManager states, Database db, ILogger<CommandParser> logger)
+public class CommandParser(RuntimeConfig config, GroupStateManager states, Database db, SayNoWordsService sayNoWords, ILogger<CommandParser> logger)
 {
     private readonly RuntimeConfig _config = config;
     private readonly GroupStateManager _states = states;
     private readonly Database _db = db;
+    private readonly SayNoWordsService _sayNoWords = sayNoWords;
     private readonly ILogger<CommandParser> _logger = logger;
 
     private static readonly Regex StripTagsRegex = new(@"<[^>]+>", RegexOptions.Compiled);
+
+    /// <summary>/admin sayno list | /admin sayno 表名 add|remove 词</summary>
+    private static ParsedCommand? ParseSayNo(string[] args)
+    {
+        if (args.Length == 0 || (args.Length == 1 && args[0].ToLowerInvariant() is "list" or "ls" or "列表"))
+        {
+            return new ParsedCommand(CommandKind.AdminSayNoList);
+        }
+        if (args.Length >= 3 && args[1].ToLowerInvariant() is "add" or "remove")
+        {
+            return new ParsedCommand(CommandKind.AdminSayNoUpdate, args[0], $"{args[1].ToLowerInvariant()} {string.Join(' ', args[2..])}");
+        }
+        return null;
+    }
 
     /// <summary>尝试解析为指令；返回 null 表示不是指令</summary>
     public ParsedCommand? Parse(string content)
@@ -62,6 +78,7 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
                 ? new ParsedCommand(CommandKind.AdminManage, args[1].ToLowerInvariant(), args.Length >= 3 ? args[2] : "")
                 : null,
             "forget" or "清除" => args.Length >= 2 ? new ParsedCommand(CommandKind.AdminForget, args[1]) : null,
+            "sayno" => ParseSayNo(args),
             _ => new ParsedCommand(CommandKind.AdminHelp)
         };
     }
@@ -153,6 +170,22 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
                 await _db.DeleteUserProfileAsync(groupOpenId, profile.UserOpenId);
                 return $"已清除用户 {target} 的画像 ☔";
 
+            case CommandKind.AdminSayNoList:
+                if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
+                return await BuildSayNoListAsync();
+
+            case CommandKind.AdminSayNoUpdate:
+                if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
+                if (command.Key == null || command.Value == null)
+                {
+                    return "用法：/admin sayno 表名 add|remove 词（如 /admin sayno saynowords add 才不{0}）";
+                }
+                string[] op = command.Value.Split(' ', 2);
+                bool isAdd = op[0] == "add";
+                string word = op.Length > 1 ? op[1] : "";
+                string? sayNoError = await _sayNoWords.UpdateAsync(command.Key, isAdd, word);
+                return sayNoError ?? $"词表 {command.Key} 已{(isAdd ? "添加" : "移除")}：{word} ☔";
+
             default:
                 return null;
         }
@@ -186,11 +219,27 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
         string osm = fun.EnableOsm && fun.OsmImages.Count > 0 ? $"开启（{fun.OsmProbability}%，{fun.OsmImages.Count} 张图）" : "关闭（未配置图片）";
         return $"随机互动状态：\n" +
             $"反驳是：{(fun.EnableReplyYes ? $"开启（{fun.ReplyYesProbability}%）" : "关闭")}\n" +
-            $"反驳不：{(fun.EnableReplyNo ? $"开启（{fun.ReplyNoProbability}%）" : "关闭")}\n" +
+            $"反驳不：{(fun.EnableReplyNo ? $"开启（{fun.ReplyNoProbability}%，烂梗 {fun.ReplyNoMemeProbability}%）" : "关闭")}\n" +
             $"复读：{(fun.EnableRepeat ? $"开启（{fun.RepeatProbability}%，延迟 {fun.RepeatDelayMinSeconds}-{fun.RepeatDelayMaxSeconds}s）" : "关闭")}\n" +
             $"OSM：{osm}\n" +
             $"反向艾特：{(fun.EnableReverseAt ? $"开启（{fun.ReverseAtProbability}%）" : "关闭")}\n" +
             $"叫哥：{(fun.EnableCallBrother ? $"开启（{fun.CallBrotherProbability}%）" : "关闭")}";
+    }
+
+    /// <summary>SayNo 词表一览（管理员）</summary>
+    private async Task<string> BuildSayNoListAsync()
+    {
+        var tables = _sayNoWords.AllTables;
+        List<string> lines = [];
+        foreach ((string name, string[] words) in tables.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            lines.Add($"[{name}] ({words.Length})");
+            if (words.Length > 0)
+            {
+                lines.Add(string.Join("、", words));
+            }
+        }
+        return "反驳不词表（文件：" + _sayNoWords.FilePathForDisplay + "）：\n" + string.Join('\n', lines);
     }
 }
 
@@ -206,7 +255,9 @@ public enum CommandKind
     AdminUnmute,
     AdminStats,
     AdminManage,
-    AdminForget
+    AdminForget,
+    AdminSayNoList,
+    AdminSayNoUpdate
 }
 
 public class ParsedCommand(CommandKind kind, string? key = null, string? value = null)

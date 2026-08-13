@@ -74,6 +74,7 @@ builder.Services.AddSingleton<CommandParser>();
 builder.Services.AddSingleton<TopicAnalyzer>();
 
 // ---------- 随机互动（原版 RainBOT 娱乐功能） ----------
+builder.Services.AddSingleton<SayNoWordsService>();
 builder.Services.AddSingleton<FunService>();
 
 WebApplication app = builder.Build();
@@ -98,6 +99,9 @@ using (IServiceScope scope = app.Services.CreateScope())
     });
     scope.ServiceProvider.GetRequiredService<ProfileTools>().Register(registry);
     scope.ServiceProvider.GetRequiredService<AdminTools>().Register(registry);
+
+    // 启动即加载 SayNo 词表（首次运行自动生成默认 sayno.json，便于用户直接编辑）
+    _ = scope.ServiceProvider.GetRequiredService<SayNoWordsService>().Current;
 
     ILogger<Program> logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     logger.LogInformation("RainBot Agent 初始化完成，模型：{Model}", runtimeConfig.Config.Llm.Model);

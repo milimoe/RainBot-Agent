@@ -27,6 +27,9 @@ public class RainConfig
     /// <summary>人设文件路径（相对运行目录）</summary>
     public string PersonaPath { get; set; } = "Persona/persona.md";
 
+    /// <summary>SayNo 反驳不词汇表 JSON 路径（相对运行目录，缺失时自动生成默认词表，编辑后热重载）</summary>
+    public string SayNoPath { get; set; } = "sayno.json";
+
     /// <summary>机器人名字（用于识别全量消息中的 @ 触发）</summary>
     public string BotName { get; set; } = "雨";
 
