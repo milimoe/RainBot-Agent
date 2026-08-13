@@ -149,6 +149,16 @@ public class Database
         await cmd.ExecuteNonQueryAsync();
     }
 
+    /// <summary>删除配置覆盖项（恢复 appsettings 默认值）</summary>
+    public async Task DeleteSettingAsync(string key)
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM settings WHERE key = $key;";
+        cmd.Parameters.AddWithValue("$key", key);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     // ---------- 管理员 ----------
 
     public async Task<List<string>> GetAdminOpenIdsAsync()
@@ -419,6 +429,109 @@ public class Database
         return result;
     }
 
+    /// <summary>
+    /// 记录机器人回复（WebUI 聊天回看用；user_openid = WebUiBridge.BotMarker）。
+    /// 不进入 HistoryStore 内存上下文，不影响模型缓存前缀。
+    /// </summary>
+    public async Task InsertBotMessageAsync(string groupOpenId, string content, DateTimeOffset time)
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = "INSERT OR IGNORE INTO messages (msg_id, group_openid, user_openid, content, is_at, msg_time) VALUES ($id, $g, '$bot', $c, 0, $t);";
+        cmd.Parameters.AddWithValue("$id", "bot-" + Guid.NewGuid().ToString("N"));
+        cmd.Parameters.AddWithValue("$g", groupOpenId);
+        cmd.Parameters.AddWithValue("$c", content);
+        cmd.Parameters.AddWithValue("$t", time.ToString("o", CultureInfo.InvariantCulture));
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>出现过消息或画像的所有群 OpenID（含仅存于群画像表的群）</summary>
+    public async Task<List<string>> GetDistinctGroupsAsync()
+    {
+        List<string> result = [];
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT group_openid FROM messages
+            UNION
+            SELECT group_openid FROM group_profiles
+            UNION
+            SELECT group_openid FROM users
+            ORDER BY group_openid;
+            """;
+        await using SqliteDataReader reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            result.Add(reader.GetString(0));
+        }
+        return result;
+    }
+
+    /// <summary>按群聚合统计（消息/画像/LLM 用量），供 WebUI 状态页</summary>
+    public async Task<List<GroupWebStats>> GetGroupStatsAsync()
+    {
+        Dictionary<string, GroupWebStatsAcc> map = new(StringComparer.Ordinal);
+
+        await using (SqliteConnection conn = await OpenAsync())
+        await using (SqliteCommand cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT group_openid, COUNT(*), SUM(CASE WHEN user_openid = '$bot' THEN 1 ELSE 0 END) FROM messages GROUP BY group_openid;";
+            await using SqliteDataReader reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                map[reader.GetString(0)] = new GroupWebStatsAcc
+                {
+                    GroupOpenId = reader.GetString(0),
+                    Messages = reader.GetInt64(1),
+                    BotMessages = reader.GetInt64(2)
+                };
+            }
+        }
+
+        await using (SqliteConnection conn = await OpenAsync())
+        await using (SqliteCommand cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT group_openid, COUNT(*) FROM users GROUP BY group_openid;";
+            await using SqliteDataReader reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                string group = reader.GetString(0);
+                if (!map.TryGetValue(group, out GroupWebStatsAcc? acc))
+                {
+                    map[group] = acc = new GroupWebStatsAcc { GroupOpenId = group };
+                }
+                acc.Users = reader.GetInt64(1);
+            }
+        }
+
+        await using (SqliteConnection conn = await OpenAsync())
+        await using (SqliteCommand cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT group_openid, COUNT(*), SUM(hit_tokens), SUM(miss_tokens), SUM(input_tokens), SUM(output_tokens) FROM stats GROUP BY group_openid;";
+            await using SqliteDataReader reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                string group = reader.GetString(0);
+                if (!map.TryGetValue(group, out GroupWebStatsAcc? acc))
+                {
+                    map[group] = acc = new GroupWebStatsAcc { GroupOpenId = group };
+                }
+                acc.Calls = reader.GetInt64(1);
+                acc.HitTokens = reader.GetInt64(2);
+                acc.MissTokens = reader.GetInt64(3);
+                acc.InputTokens = reader.GetInt64(4);
+                acc.OutputTokens = reader.GetInt64(5);
+            }
+        }
+
+        return map.Values
+            .OrderBy(a => a.GroupOpenId)
+            .Select(a => new GroupWebStats(
+                a.GroupOpenId, a.Messages, a.BotMessages, a.Users,
+                a.Calls, a.HitTokens, a.MissTokens, a.InputTokens, a.OutputTokens))
+            .ToList();
+    }
+
     /// <summary>清理每个群超出保留上限的历史（头部整条丢弃）</summary>
     public async Task TrimHistoryAsync(string groupOpenId, int keepCount)
     {
@@ -564,4 +677,30 @@ public class StoredMessage
     public required string Content { get; set; }
     public bool IsAt { get; set; }
     public DateTimeOffset Time { get; set; }
+}
+
+/// <summary>按群聚合的 WebUI 统计</summary>
+public sealed record GroupWebStats(
+    string GroupOpenId,
+    long Messages,
+    long BotMessages,
+    long Users,
+    long Calls,
+    long HitTokens,
+    long MissTokens,
+    long InputTokens,
+    long OutputTokens);
+
+/// <summary>聚合累加器（GetGroupStatsAsync 内部用）</summary>
+internal sealed class GroupWebStatsAcc
+{
+    public required string GroupOpenId { get; init; }
+    public long Messages { get; set; }
+    public long BotMessages { get; set; }
+    public long Users { get; set; }
+    public long Calls { get; set; }
+    public long HitTokens { get; set; }
+    public long MissTokens { get; set; }
+    public long InputTokens { get; set; }
+    public long OutputTokens { get; set; }
 }

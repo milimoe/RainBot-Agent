@@ -14,20 +14,21 @@ namespace RainBot.Services.Fun;
 /// 优化点（对比原版）：
 /// - 纯规则概率触发，不消耗 LLM Token；
 /// - 一次消息最多响应一个 Fun（按优先级互斥），避免多重回复刷屏；
-/// - 反驳不保留原版"烂梗 API"表现形式：命中时按概率拉一条弹幕烂梗代替词表，失败自动回退词表；
+/// - 反驳不保留原版"烂梗 API"表现形式：命中时按概率拉一条弹幕烂梗代替词表，失败自动回退词表（烂梗 URL 默认为空，留空不触发该分支）；
 /// - 移除原版 SC 记分、控制台彩色日志；
-/// - 概率/开关/延迟全部可热改（/admin set Fun.*），OSM 图片用 URL 列表配置。
+/// - 概率/开关/延迟全部可热改（/admin set Fun.*）；OSM 梗图自动扫描 wwwroot/osm 目录，URL = Rain.PublicBaseUrl + 相对路径（域名只需设置一次）。
 /// </summary>
-public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService qqBotService, SayNoWordsService sayNoWords, IHttpClientFactory httpClientFactory, ILogger<FunService> logger)
+public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService qqBotService, SayNoWordsService sayNoWords, OsmImageCatalog osmCatalog, IHttpClientFactory httpClientFactory, ILogger<FunService> logger)
 {
     private readonly RuntimeConfig _config = config;
     private readonly SendQueue _sendQueue = sendQueue;
     private readonly QQBotService _qqBotService = qqBotService;
     private readonly SayNoWordsService _sayNoWords = sayNoWords;
+    private readonly OsmImageCatalog _osmCatalog = osmCatalog;
     private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
     private readonly ILogger<FunService> _logger = logger;
 
-    private static readonly Regex AtTagRegex = new(@"<@![^>]+>", RegexOptions.Compiled);
+    private static readonly Regex AtTagRegex = new(@"<@!?[^>]+>", RegexOptions.Compiled);
 
     /// <summary>
     /// 尝试响应随机互动。
@@ -64,9 +65,13 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService 
             return await ReverseAtAsync(msg, clean);
         }
 
-        if (fun.EnableOsm && fun.OsmImages.Count > 0 && Chance(fun.OsmProbability))
+        if (fun.EnableOsm && Chance(fun.OsmProbability))
         {
-            return await ReplyOsmAsync(msg);
+            IReadOnlyList<OsmImage> images = _osmCatalog.Images; // 域名未配置时为空 → 自动禁用
+            if (images.Count > 0)
+            {
+                return await ReplyOsmAsync(msg, images[Random.Shared.Next(images.Count)].Url);
+            }
         }
 
         if (fun.EnableRepeat && !fun.RepeatIgnoreWords.Any(clean.Contains) && Chance(fun.RepeatProbability))
@@ -185,11 +190,9 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService 
         return FunResult.HandledContinue; // 继续被动触发（LLM 回复）
     }
 
-    /// <summary>随机 OSM：上传图片并发送（图片 URL 空则该功能已禁用）</summary>
-    private async Task<FunResult> ReplyOsmAsync(IncomingMessage msg)
+    /// <summary>随机 OSM：上传图片并发送（图片来自 wwwroot/osm 目录扫描 + 公网域名拼接）</summary>
+    private async Task<FunResult> ReplyOsmAsync(IncomingMessage msg, string url)
     {
-        FunConfig fun = _config.Config.Fun;
-        string url = fun.OsmImages[Random.Shared.Next(fun.OsmImages.Count)];
         try
         {
             UploadMediaResult upload = await _qqBotService.UploadGroupMediaAsync(msg.GroupOpenId, 1, url);

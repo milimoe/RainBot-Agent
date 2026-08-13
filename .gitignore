@@ -4,6 +4,10 @@ Data/
 *.db-wal
 *.db-shm
 
+# 前端依赖（构建产物在 wwwroot/webui，随仓库提交，便于无 Node 环境发布）
+webui/node_modules/
+webui/dist/
+
 # 构建产物
 bin/
 obj/

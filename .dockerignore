@@ -1,0 +1,10 @@
+# 前端依赖与本机产物不打进镜像（wwwroot/webui 的构建产物随源码提交）
+webui/node_modules/
+webui/dist/
+bin/
+obj/
+Tests/bin/
+Tests/obj/
+.git/
+.vs/
+Data/

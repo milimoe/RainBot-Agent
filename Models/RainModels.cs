@@ -44,6 +44,14 @@ public class IncomingMessage
 
     /// <summary>是否全量消息事件（GROUP_MESSAGE_CREATE，非 @ 推送）</summary>
     public bool IsFullMessage { get; init; }
+
+    /// <summary>
+    /// 是否跳过统计/历史入库/随机互动等副作用。
+    /// 开启「接收所有消息」后，@ 消息会同时推送 GROUP_AT_MESSAGE_CREATE 与 GROUP_MESSAGE_CREATE
+    /// （同 msg_id）。当全量事件先到、@ 事件后到时，全量事件已完成统计/历史/随机互动，
+    /// @ 事件以该标记补执行：输入风控 → 指令 → 被动触发 → 工作流（避免重复计数与重复历史）。
+    /// </summary>
+    public bool SkipSideEffects { get; init; }
 }
 
 /// <summary>

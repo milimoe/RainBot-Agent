@@ -27,4 +27,16 @@
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- WebUI 前端（React + Tailwind，webui/ 目录）：
+       Release 发布时若本机有 Node.js 则自动执行 npm install + vite build，
+       产物输出到 wwwroot/webui。无 Node 环境（如 Docker 单阶段构建）时仅告警，
+       使用仓库内已提交的 wwwroot/webui 构建产物。 -->
+  <Target Name="BuildWebUi" BeforeTargets="Publish" Condition="'$(Configuration)' == 'Release' And Exists('webui/package.json')">
+    <Message Importance="high" Text="构建 WebUI 前端（npm install + vite build）…" />
+    <Exec Command="npm.cmd install" WorkingDirectory="webui" Condition="'$(OS)' == 'Windows_NT'" ContinueOnError="WarnAndContinue" />
+    <Exec Command="npm.cmd run build" WorkingDirectory="webui" Condition="'$(OS)' == 'Windows_NT'" ContinueOnError="WarnAndContinue" />
+    <Exec Command="npm install" WorkingDirectory="webui" Condition="'$(OS)' != 'Windows_NT'" ContinueOnError="WarnAndContinue" />
+    <Exec Command="npm run build" WorkingDirectory="webui" Condition="'$(OS)' != 'Windows_NT'" ContinueOnError="WarnAndContinue" />
+  </Target>
+
 </Project>

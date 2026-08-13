@@ -12,12 +12,13 @@ namespace RainBot.Services.Commands;
 /// - 管理员指令：/admin list | set | mute | unmute | stats | admin add/remove | forget | help
 /// - /status：状态查看（管理员）
 /// </summary>
-public class CommandParser(RuntimeConfig config, GroupStateManager states, Database db, SayNoWordsService sayNoWords, ILogger<CommandParser> logger)
+public class CommandParser(RuntimeConfig config, GroupStateManager states, Database db, SayNoWordsService sayNoWords, OsmImageCatalog osmCatalog, ILogger<CommandParser> logger)
 {
     private readonly RuntimeConfig _config = config;
     private readonly GroupStateManager _states = states;
     private readonly Database _db = db;
     private readonly SayNoWordsService _sayNoWords = sayNoWords;
+    private readonly OsmImageCatalog _osmCatalog = osmCatalog;
     private readonly ILogger<CommandParser> _logger = logger;
 
     private static readonly Regex StripTagsRegex = new(@"<[^>]+>", RegexOptions.Compiled);
@@ -194,7 +195,14 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
     private async Task<string> BuildParamListAsync()
     {
         List<(string Key, string Value, bool Overridden)> items = await _config.ListAllAsync();
-        var lines = items.Select(i => i.Overridden ? $"⚙ {i.Key} = {i.Value}（已修改）" : $"{i.Key} = {i.Value}");
+        var lines = items.Select(i =>
+        {
+            // 密钥类参数脱敏：解除输出截断后 /admin list 会完整输出，绝不能泄露 DeepSeek Key
+            string value = i.Key == "Llm.ApiKey" && !string.IsNullOrWhiteSpace(i.Value)
+                ? "••••••（已配置，不显示）"
+                : i.Value;
+            return i.Overridden ? $"⚙ {i.Key} = {value}（已修改）" : $"{i.Key} = {value}";
+        });
         return string.Join('\n', lines);
     }
 
@@ -216,7 +224,10 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
     private string BuildFunStatusAsync()
     {
         FunConfig fun = _config.Config.Fun;
-        string osm = fun.EnableOsm && fun.OsmImages.Count > 0 ? $"开启（{fun.OsmProbability}%，{fun.OsmImages.Count} 张图）" : "关闭（未配置图片）";
+        int osmCount = _osmCatalog.Images.Count;
+        string osm = fun.EnableOsm
+            ? (osmCount > 0 ? $"开启（{fun.OsmProbability}%，{osmCount} 张图）" : "开启（但未配置公网域名或无图片，自动禁用）")
+            : "关闭";
         return $"随机互动状态：\n" +
             $"反驳是：{(fun.EnableReplyYes ? $"开启（{fun.ReplyYesProbability}%）" : "关闭")}\n" +
             $"反驳不：{(fun.EnableReplyNo ? $"开启（{fun.ReplyNoProbability}%，烂梗 {fun.ReplyNoMemeProbability}%）" : "关闭")}\n" +

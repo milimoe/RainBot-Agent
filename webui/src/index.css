@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@theme {
+  --color-qq-bg: #f5f6f7;
+  --color-qq-panel: #ffffff;
+  --color-qq-border: #e6e9ec;
+  --color-qq-hover: #eef1f4;
+  --color-qq-blue: #12b7f5;
+  --color-qq-blue-deep: #0099ff;
+  --color-qq-self: #cfeafd;
+  --color-qq-active: #dcecfd;
+  --color-qq-text: #141414;
+  --color-qq-sub: #909399;
+  --color-qq-green: #07c160;
+  --color-qq-red: #fa5151;
+  --color-qq-warn: #f5a623;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-qq-bg);
+  color: var(--color-qq-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 细滚动条（QQ 风格） */
+.qq-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.qq-scroll::-webkit-scrollbar-thumb {
+  background: #d3d8dd;
+  border-radius: 3px;
+}
+.qq-scroll::-webkit-scrollbar-thumb:hover {
+  background: #bcc3ca;
+}
+.qq-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@layer components {
+  /* 聊天气泡：对方 = 白底描边，自己/机器人 = 浅蓝 */
+  .bubble-in {
+    @apply bg-qq-panel border border-qq-border text-qq-text rounded-xl rounded-tl-[4px];
+  }
+  .bubble-out {
+    @apply bg-qq-self border border-[#b8defa] text-qq-text rounded-xl rounded-tr-[4px];
+  }
+  /* 提及高亮 */
+  .mention {
+    @apply text-qq-blue font-medium;
+  }
+  /* 左侧导航项 */
+  .nav-item {
+    @apply flex flex-col items-center gap-0.5 rounded-lg py-1.5 px-1 w-14 text-[11px] text-qq-sub cursor-pointer transition-colors select-none;
+  }
+  .nav-item:hover {
+    @apply bg-qq-hover text-qq-text;
+  }
+  .nav-item.active {
+    @apply text-qq-blue-deep;
+  }
+}

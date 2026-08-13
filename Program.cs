@@ -15,6 +15,7 @@ using RainBot.Services.Topic;
 using RainBot.Services.Trigger;
 using RainBot.Services.Workflow;
 using RainBot.Services.Fun;
+using RainBot.Services.WebUi;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 DateTimeOffset appStartTime = DateTimeOffset.UtcNow;
@@ -24,12 +25,13 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient("duckduckgo"); // DuckDuckGo 搜索客户端
 builder.Services.AddHttpClient("deepseek");   // DeepSeek LLM 客户端
-builder.Services.Configure<BotConfig>(builder.Configuration.GetSection("Bot"));
 builder.Services.Configure<RainConfig>(builder.Configuration.GetSection("Rain"));
+builder.Services.Configure<WebUiOptions>(builder.Configuration.GetSection("Rain:WebUi"));
 
 // ---------- 存储与配置 ----------
 builder.Services.AddSingleton<Database>();
 builder.Services.AddSingleton<RuntimeConfig>();
+builder.Services.AddSingleton<BotConfigService>(); // QQ 网关凭据（WebUI 维护，修改即断线重连）
 
 // ---------- QQ 接入 ----------
 builder.Services.AddSingleton<BotStatus>();
@@ -38,6 +40,7 @@ builder.Services.AddScoped<QQBotService>();
 builder.Services.AddHostedService<QQBotWebSocketService>();
 builder.Services.AddSingleton<MessageDispatcher>();
 builder.Services.AddSingleton<MessageQueue>();
+builder.Services.AddHostedService(static sp => sp.GetRequiredService<MessageQueue>()); // 消息队列消费者（必须宿主化才会消费）
 builder.Services.AddSingleton<MessageProcessor>();
 
 // ---------- 触发系统 ----------
@@ -45,6 +48,7 @@ builder.Services.AddSingleton<GroupStateManager>();
 builder.Services.AddSingleton<PassiveTrigger>();
 builder.Services.AddSingleton<ActiveTrigger>();
 builder.Services.AddSingleton<SendQueue>();
+builder.Services.AddHostedService(static sp => sp.GetRequiredService<SendQueue>()); // 发送队列消费者（必须宿主化才会真正发送）
 builder.Services.AddHostedService<WarmupScheduler>();
 
 // ---------- LLM 与上下文 ----------
@@ -75,7 +79,15 @@ builder.Services.AddSingleton<TopicAnalyzer>();
 
 // ---------- 随机互动（原版 RainBOT 娱乐功能） ----------
 builder.Services.AddSingleton<SayNoWordsService>();
+builder.Services.AddSingleton<OsmImageCatalog>(); // wwwroot/osm 目录扫描 + 公网域名拼接
 builder.Services.AddSingleton<FunService>();
+
+// ---------- WebUI 控制台 ----------
+builder.Services.AddSingleton<WebUiLogProvider>(); // 捕获 ILogger 输出到日志页（与日志管线同源）
+builder.Services.AddSingleton<ILoggerProvider>(static sp => sp.GetRequiredService<WebUiLogProvider>());
+builder.Services.AddSingleton<WebUiEventBus>();
+builder.Services.AddSingleton<WebUiBridge>();
+builder.Services.AddSingleton<DeepSeekBalanceService>();
 
 WebApplication app = builder.Build();
 
@@ -87,6 +99,9 @@ using (IServiceScope scope = app.Services.CreateScope())
 
     RuntimeConfig runtimeConfig = scope.ServiceProvider.GetRequiredService<RuntimeConfig>();
     await runtimeConfig.InitializeAsync();
+
+    // 加载 QQ 网关凭据覆盖（WebUI 维护的 AppID/Secret 存于 settings 表）
+    await scope.ServiceProvider.GetRequiredService<BotConfigService>().InitializeAsync();
 
     ToolRegistry registry = scope.ServiceProvider.GetRequiredService<ToolRegistry>();
     WebSearchTool searchTool = scope.ServiceProvider.GetRequiredService<WebSearchTool>();
@@ -105,10 +120,15 @@ using (IServiceScope scope = app.Services.CreateScope())
 
     ILogger<Program> logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     logger.LogInformation("RainBot Agent 初始化完成，模型：{Model}", runtimeConfig.Config.Llm.Model);
+    logger.LogInformation("WebUI 控制台：http://localhost:8080/webui/（Rain:WebUi:Token 为空则内网免鉴权）");
 }
 
-// ---------- HTTP 端点（宝塔反代 / 健康检查 / OSM 图片静态托管） ----------
+// ---------- HTTP 端点（宝塔反代 / 健康检查 / OSM 图片静态托管 / WebUI 控制台） ----------
+app.UseDefaultFiles(); // 目录请求默认返回 index.html（/webui/ → wwwroot/webui/index.html）
 app.UseStaticFiles(); // wwwroot/ 下的图片（如 osm/osm.jpg）可通过 http://地址/osm/osm.jpg 访问
+
+// WebUI 控制台（React + Tailwind 构建产物在 wwwroot/webui/）
+app.MapWebUiEndpoints();
 
 app.MapGet("/health", (BotStatus status, RuntimeConfig config) => Results.Json(new
 {
@@ -117,7 +137,8 @@ app.MapGet("/health", (BotStatus status, RuntimeConfig config) => Results.Json(n
     model = config.Config.Llm.Model,
     wsConnected = status.WebSocketConnected,
     lastConnectedAt = status.LastConnectedAt,
-    uptime = DateTimeOffset.UtcNow - appStartTime
+    uptime = DateTimeOffset.UtcNow - appStartTime,
+    uptimeSeconds = (DateTimeOffset.UtcNow - appStartTime).TotalSeconds
 }));
 
 await app.RunAsync();

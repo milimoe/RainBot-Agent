@@ -214,6 +214,7 @@ public class FunServiceTests
         {
             c.Config.Fun.ReplyNoProbability = 100;
             c.Config.Fun.ReplyNoMemeProbability = 100; // 必走烂梗
+            c.Config.Fun.ReplyNoMemeUrl = "http://meme.test/getRandOne";
         }, _ => new HttpResponseMessage(System.Net.HttpStatusCode.OK)
         {
             Content = new StringContent("{\"data\":{\"barrage\":\"哈哈哈哈笑死我了\"}}", Encoding.UTF8, "application/json")
@@ -233,6 +234,7 @@ public class FunServiceTests
         {
             c.Config.Fun.ReplyNoProbability = 100;
             c.Config.Fun.ReplyNoMemeProbability = 100;
+            c.Config.Fun.ReplyNoMemeUrl = "http://meme.test/getRandOne";
         }, _ => new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError)
         {
             Content = new StringContent("boom")
@@ -252,6 +254,7 @@ public class FunServiceTests
         {
             c.Config.Fun.ReplyNoProbability = 100;
             c.Config.Fun.ReplyNoMemeProbability = 100;
+            c.Config.Fun.ReplyNoMemeUrl = "http://meme.test/getRandOne";
         }, _ => new HttpResponseMessage(System.Net.HttpStatusCode.OK)
         {
             Content = new StringContent("{\"unexpected\":true}")

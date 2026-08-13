@@ -2,12 +2,14 @@ using System.Collections.Concurrent;
 using System.Threading.Channels;
 using RainBot.Services.Config;
 using RainBot.Services.QQ;
+using RainBot.Services.WebUi;
 
 namespace RainBot.Services.Trigger;
 
 /// <summary>
 /// 发送队列：Channel + 每群滑动窗口频控（默认 15 qpm，官方 20 qpm 留余量）。
 /// 超限消息延迟重试，超过重试上限丢弃并告警，避免死循环。
+/// 试聊（仿真）模式：该群消息只推送到 WebUI 并落库回看，不发送到 QQ。
 /// </summary>
 public class SendQueue : BackgroundService
 {
@@ -17,18 +19,20 @@ public class SendQueue : BackgroundService
     private readonly ILogger<SendQueue> _logger;
     private readonly ConcurrentDictionary<string, List<DateTimeOffset>> _groupSendWindow = new();
     private readonly BotStatus _botStatus;
+    private readonly WebUiBridge? _webUi;
 
     /// <summary>发送消息序号（防服务器按 msg_seq 去重）</summary>
     private long _msgSeq = 0;
 
     private const int MaxRetryTimes = 10;
 
-    public SendQueue(QQBotService qqBotService, RuntimeConfig config, ILogger<SendQueue> logger, BotStatus botStatus)
+    public SendQueue(QQBotService qqBotService, RuntimeConfig config, ILogger<SendQueue> logger, BotStatus botStatus, WebUiBridge? webUi = null)
     {
         _qqBotService = qqBotService;
         _config = config;
         _logger = logger;
         _botStatus = botStatus;
+        _webUi = webUi;
         _channel = Channel.CreateUnbounded<SendTask>();
     }
 
@@ -98,8 +102,35 @@ public class SendQueue : BackgroundService
             }
             window.Add(now);
         }
-        await _qqBotService.SendGroupTextAsync(task.GroupOpenId, task.Content, task.MsgId, Interlocked.Increment(ref _msgSeq));
+
+        // 调试：发送决策（排查"没有回复"问题）
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("发送队列：group={Group} sim={Sim} markdown={Md} msgId={MsgId} content={Content}",
+                task.GroupOpenId, _webUi != null && _webUi.IsSimulationEnabled(task.GroupOpenId), _config.Config.MarkdownReply, task.MsgId, task.Content);
+        }
+
+        // 试聊（仿真）模式：不发送到 QQ，只推送到 WebUI 并落库供聊天页回看
+        if (_webUi != null && _webUi.IsSimulationEnabled(task.GroupOpenId))
+        {
+            await _webUi.PublishBotMessageAsync(task.GroupOpenId, task.Content);
+            return true;
+        }
+
+        // Markdown 回复模式：以 Markdown 消息（msg_type=2）发送，否则纯文本（msg_type=0）
+        if (_config.Config.MarkdownReply)
+        {
+            await _qqBotService.SendGroupMarkdownAsync(task.GroupOpenId, task.Content, task.MsgId, Interlocked.Increment(ref _msgSeq));
+        }
+        else
+        {
+            await _qqBotService.SendGroupTextAsync(task.GroupOpenId, task.Content, task.MsgId, Interlocked.Increment(ref _msgSeq));
+        }
         _botStatus.ReceivedMessages++; // 复用计数仅作统计占位，不参与限流
+        if (_webUi != null)
+        {
+            await _webUi.PublishBotMessageAsync(task.GroupOpenId, task.Content);
+        }
         return true;
     }
 }

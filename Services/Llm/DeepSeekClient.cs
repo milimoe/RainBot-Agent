@@ -83,7 +83,93 @@ public class DeepSeekClient(RuntimeConfig config, IHttpClientFactory httpClientF
     /// <summary>模型名（供日志/统计）</summary>
     public string ModelName => _config.Config.Llm.Model;
 
+    /// <summary>
+    /// 查询 DeepSeek 账户余额（GET {BaseUrl}/user/balance，取第一个币种余额）。
+    /// 未配置 API Key 或接口异常时抛 LlmException。
+    /// </summary>
+    public async Task<DeepSeekBalance> GetBalanceAsync(CancellationToken ct = default)
+    {
+        var cfg = _config.Config.Llm;
+        if (string.IsNullOrWhiteSpace(cfg.ApiKey))
+        {
+            throw new LlmException("未配置 DeepSeek API Key");
+        }
+
+        using HttpRequestMessage httpRequest = new(HttpMethod.Get, $"{cfg.BaseUrl.TrimEnd('/')}/user/balance");
+        httpRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", cfg.ApiKey);
+
+        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(cfg.TimeoutSeconds));
+        HttpResponseMessage response = await _httpClient.SendAsync(httpRequest, timeout.Token);
+
+        string responseBody = await response.Content.ReadAsStringAsync(timeout.Token);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new LlmException($"DeepSeek 余额查询返回 {response.StatusCode}：{Truncate(responseBody, 300)}");
+        }
+
+        BalanceResponse? balance = JsonSerializer.Deserialize<BalanceResponse>(responseBody);
+        BalanceInfo? info = balance?.BalanceInfos?.FirstOrDefault();
+        if (info == null)
+        {
+            throw new LlmException("DeepSeek 余额接口返回数据为空");
+        }
+        return new DeepSeekBalance
+        {
+            Available = balance!.IsAvailable,
+            Currency = info.Currency,
+            TotalBalance = info.TotalBalance,
+            GrantedBalance = info.GrantedBalance,
+            ToppedUpBalance = info.ToppedUpBalance
+        };
+    }
+
     private static string Truncate(string text, int max) => text.Length <= max ? text : text[..max] + "...";
+}
+
+/// <summary>DeepSeek 账户余额（取首个币种）</summary>
+public class DeepSeekBalance
+{
+    /// <summary>账户是否可用</summary>
+    public bool Available { get; set; }
+
+    /// <summary>币种（如 CNY）</summary>
+    public string Currency { get; set; } = "";
+
+    /// <summary>总余额</summary>
+    public string TotalBalance { get; set; } = "";
+
+    /// <summary>赠送余额</summary>
+    public string GrantedBalance { get; set; } = "";
+
+    /// <summary>充值余额</summary>
+    public string ToppedUpBalance { get; set; } = "";
+}
+
+/// <summary>余额接口响应</summary>
+public class BalanceResponse
+{
+    [JsonPropertyName("is_available")]
+    public bool IsAvailable { get; set; }
+
+    [JsonPropertyName("balance_infos")]
+    public List<BalanceInfo> BalanceInfos { get; set; } = [];
+}
+
+/// <summary>单个币种余额</summary>
+public class BalanceInfo
+{
+    [JsonPropertyName("currency")]
+    public string Currency { get; set; } = "";
+
+    [JsonPropertyName("total_balance")]
+    public string TotalBalance { get; set; } = "";
+
+    [JsonPropertyName("granted_balance")]
+    public string GrantedBalance { get; set; } = "";
+
+    [JsonPropertyName("topped_up_balance")]
+    public string ToppedUpBalance { get; set; } = "";
 }
 
 /// <summary>LLM 调用异常</summary>

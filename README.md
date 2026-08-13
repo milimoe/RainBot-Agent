@@ -32,6 +32,8 @@ export RAIN__LLM__APIKEY="你的DeepSeekKey"
 export RAIN__ADMINOPENIDS__0="你的OpenID"   # 第一个管理员
 ```
 
+> `BOT__APPID` / `BOT__SECRET` 也可以直接在 WebUI「设置 → QQ 网关」中维护（保存到 SQLite settings 表，修改时立即断开现有连接并用新凭据重连）。`RAIN__PUBLICBASEURL` 为公网域名，只需设置一次，OSM 梗图等静态资源自动以「域名 + wwwroot 相对路径」对外提供。
+
 > `RAIN__BOTOPENID`（机器人群内 OpenID）：可选。开启「接收所有消息」后官方推送的 content 已去除 @ 机器人前缀，判断是否 @ 机器人需要机器人自身 openid 精确比对（兼容历史 `<@!{bot_openid}>` 标签）。**不填也能用**——机器人首次被 @ 时会自动学习并落库；也可 `/admin set Bot.OpenId` 手动设置（配置优先）。
 
 3. 运行：
@@ -41,6 +43,41 @@ dotnet run                       # 开发（沙箱在 appsettings.Development.js
 dotnet publish -c Release -o publish && cd publish && dotnet RainBot.dll
 curl http://localhost:8080/health   # {"status":"ok"} 即连接成功
 ```
+
+## WebUI 控制台（React + Tailwind）
+
+浏览器打开 `http://localhost:8080/webui/` 即可（根路径 `/` 自动跳转）。
+
+| 页面 | 功能 |
+| :--- | :--- |
+| 消息 | **仿 NTQQ 聊天窗口**：会话列表 + 头像/气泡/昵称/日期分隔线；SSE 实时推送群消息与机器人回复；内置「WebUI 试聊群」可模拟群友发言——消息走真实处理链（统计→风控→历史→随机互动→LLM），机器人回复只显示在网页并落库回看，不发送到 QQ；真实群在右上角「⋯」菜单开启「试聊拦截」后同样可在网页试聊 |
+| 配置 | 全部可热改参数分组编辑（LLM/触发/上下文/风控/随机互动/通用），类型化控件 + 一键保存（落库即时生效）+ 覆盖标记与恢复默认；含公网域名（静态资源基址，只需设置一次） |
+| 设置 | 人设 `persona.md` 在线编辑（保存热重载）、SayNo 词表增删（写回 sayno.json）、管理员 OpenID 维护、**QQ 网关 AppID/Secret 维护（保存即断开现有连接并用新凭据重连）**、OSM 梗图目录（域名 + 自动扫描 `wwwroot/osm/`，路径零配置） |
+| 状态 | QQ 网关连接状态 / 运行时长 / 队列深度 / 缓存命中率成本仪表 / **DeepSeek 账户余额（首次打开自动查询一次 + 手动刷新 + 最后刷新时间）** / 每群统计，支持静默与重置上下文操作 |
+
+### 鉴权
+
+配置段 `Rain:WebUi`（appsettings 或环境变量）：
+
+- `Enabled`（默认 `true`）：是否启用控制台；
+- `Token`（默认空）：访问令牌。非空时所有 `/api/webui/*` 接口要求请求头 `X-WebUi-Token`（SSE 用 `?token=`），浏览器首次访问弹窗输入并保存在 localStorage。**公网部署务必设置**（环境变量 `RAIN__WEBUI__TOKEN`）。
+
+`/health` 与静态页面保持公开，不影响宝塔探活与反代。
+
+### 前端开发
+
+```bash
+cd webui
+npm install
+npm run dev      # Vite 开发服务器（5173，/api 自动代理到 8080）
+npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行（无 Node 环境则用仓库内已提交产物）
+```
+
+### 试聊（仿真）说明
+
+- 内置「WebUI 试聊群」的机器人回复**永远**只推送到网页（拦截点在发送队列），并落库回看（`messages` 表 `user_openid = '$bot'`），不会发送到 QQ；
+- 真实群需先开启「试聊拦截」才允许注入试聊消息；注入的消息会进入该群真实上下文缓存与历史统计，请谨慎使用；
+- 关闭「试聊拦截」即恢复真实发送。已开启拦截的群会在状态页醒目提示。
 
 ## 配置参数（`/admin list` 查看，`/admin set` 热改）
 
@@ -64,17 +101,24 @@ curl http://localhost:8080/health   # {"status":"ok"} 即连接成功
 | `Fun.EnableReplyYes` / `ReplyYesProbability` | true / 40 | 随机反驳是（消息=「是」时概率反驳「是你的头」） |
 | `Fun.EnableReplyNo` / `ReplyNoProbability` | true / 16 | 随机反驳不（词表抬杠，词表存于 `sayno.json` 可热更新） |
 | `SayNoPath` | sayno.json | 反驳不词表 JSON 路径（缺失自动生成默认，编辑保存即热重载） |
-| `Fun.ReplyNoMemeUrl` / `ReplyNoMemeProbability` | hguofichp.cn:10086 / 30 | 反驳不命中时按该概率改用烂梗 API 回复（原版行为），失败自动回退词表；URL 置空可关闭 |
+| `Fun.ReplyNoMemeUrl` / `ReplyNoMemeProbability` | 空 / 30 | 反驳不命中时按该概率改用烂梗 API 回复（**默认留空，留空不触发该分支**，始终用词表）；失败自动回退词表 |
 | `Fun.EnableRepeat` / `RepeatProbability` | true / 7 | 随机复读（延迟 30-80s，50% 加 desuwa～） |
-| `Fun.EnableOsm` / `OsmProbability` / `OsmImages` | true / 2 / [] | 随机 OSM 梗图（URL 列表，空则禁用，见下） |
+| `Fun.EnableOsm` / `OsmProbability` | true / 2 | 随机 OSM 梗图（**图片无需配置路径**：自动扫描 `wwwroot/osm/` 目录，URL = 公网域名 + 相对路径） |
+| `PublicBaseUrl` | 空 | **公网域名（只需设置一次）**：所有静态资源（OSM 梗图等）以「域名 + wwwroot 相对路径」对外提供；留空则 OSM 自动禁用 |
+| `DebugMode` | false | **调试模式**：开启后在每次对话输出末尾追加一行「x tokens, x tools」（输入+输出 token 总数、工具调用次数），排查成本与工具行为用 |
+| `MarkdownReply` | false | **Markdown 回复**：开启后所有文本回复以 Markdown 消息（msg_type=2）发送到 QQ 网关而非纯文本（msg_type=0）；调试统计行显示为「> x tokens, x tools」块引用 |
 | `Fun.EnableReverseAt` / `ReverseAtProbability` | true / 70 | 反向艾特（@ 机器人时把 @ 弹回发送者，不阻断 AI 回复） |
 | `Fun.EnableCallBrother` / `CallBrotherProbability` | true / 4 | 随机叫哥（@+名字截取+随机后缀，延迟 30s） |
 
-**OSM 图片配置**：把梗图放入 `wwwroot/osm/`（如 `osm.jpg`、`osm.gif`、`newosm.jpg`），然后在 `Fun.OsmImages` 填公网访问地址（如 `http://你的域名/osm/osm.jpg`），或直接填任意公网图片 URL。未配置图片时该功能自动禁用。
+**OSM 图片配置（域名设置一次，路径零配置）**：把梗图放入 `wwwroot/osm/`（支持子目录，如 `osm.jpg`、`osm/shide/sd1.gif`），然后在 `PublicBaseUrl` 填入公网域名（如 `http://你的域名`）。OSM 发送时会自动扫描目录并拼接 `http://你的域名/osm/xxx.jpg`；未设置域名或无图片时该功能自动禁用。所有静态资源（OSM 图片、`wwwroot/` 下的任何文件）都复用这一个域名。
+
+**QQ 网关凭据（WebUI 维护）**：`Bot.AppId` / `Bot.Secret` 除环境变量外，还可在 WebUI「设置 → QQ 网关」中修改；保存后立即断开现有连接并用新凭据重连（凭据落库 settings 表，重启依然生效）。
 
 **反驳不词表（sayno.json）**：首次运行自动生成默认词表文件（13 张表，字段名与原版 RainBOT 一致：`Trigger`、`TriggerBeforeNo`、`IgnoreTriggerAfterNo`、`IgnoreTriggerBeforeCan`、`TriggerAfterYes`、`WillNotSayNo`、`SayNoWords`、`SayDontHaveWords`、`SayNotYesWords`、`SayDontWords`、`SayWantWords`、`SayThinkWords`、`SaySpecialNoWords`）。直接编辑保存即热重载，也可用 `/admin sayno` 指令增删（写回 JSON）。
 
 ## 指令表（管理员为机器人自我维护的 OpenID 列表，与群管理员无关）
+
+> 指令**无需 @ 机器人**，群里直接发送即可（@ 发送同样有效）；管理员指令按权限放行，非管理员会收到提示。全量消息模式下回复不携带 msg_id（官方约束：被动回复仅适用于 @ 事件消息），以主动消息形式发送。
 
 | 指令 | 权限 | 说明 |
 | :--- | :--- | :--- |
@@ -94,7 +138,7 @@ curl http://localhost:8080/health   # {"status":"ok"} 即连接成功
 ## 架构速览
 
 ```
-WS 网关 ──▶ 去重(msg_id) ──▶ Channel 队列 ──▶ MessageProcessor
+WS 网关 ──▶ 双事件去重（@/全量同 msg_id 协调，@ 语义绝不丢失）──▶ Channel 队列 ──▶ MessageProcessor
                                                      │  统计 → 输入风控 → 历史入库 → 命令 → 被动触发判定
                                                      ▼
                                               WorkflowRunner（全局串行）
@@ -106,6 +150,8 @@ WS 网关 ──▶ 去重(msg_id) ──▶ Channel 队列 ──▶ MessagePro
 WarmupScheduler（30s 扫描）──▶ 密度/沉默/频控判定 ──▶ 暖群工作流（允许画像沉淀）
 ```
 
+**双事件去重（@ 判定权威）**：开启「接收所有消息」后，@ 消息会同时推送 `GROUP_AT_MESSAGE_CREATE` 与 `GROUP_MESSAGE_CREATE`（同 msg_id，官方注明相同 msg_id 可能重复推送）；部分环境下 @ 事件不再单独推送，此时以全量事件 payload 的 **`mentions` 数组（`is_you=true` 即 @ 了本机器人）** 为权威信号，content 中的 @ 标签（新格式 `<@openid>` / 历史格式 `<@!openid>`）作为兜底。分发层按事件类型分别去重，并保证 @ 语义绝不丢失：@ 事件先到则全量事件跳过；全量事件先到则 @ 事件仍补执行风控→指令→触发→工作流（跳过已完成的统计/历史，避免重复计数与重复入库）。`RAIN__BOTOPENID` 仅在标签兜底判定时使用，未配置也会自动从 mentions/@ 事件学习。
+
 **消息结构（缓存关键）**：`messages[0]=system(A 人设)` → `messages[1]=user(B 工具+C 群画像+D 锚点，静态)` → `messages[2]=user(E 历史，尾部增长)` → `messages[3]=user(F 当前)`。A~D 跨请求前缀不变 → DeepSeek 硬盘缓存命中（命中 ¥0.1/百万 vs 未命中 ¥1/百万）。
 
 ## 验收对照（PRD 第 7 节）
@@ -113,7 +159,7 @@ WarmupScheduler（30s 扫描）──▶ 密度/沉默/频控判定 ──▶ �
 | 指标 | 实现与验证方式 |
 | :--- | :--- |
 | 缓存命中率 ≥ 90%（正常模式） | BlockComposer 前缀稳定（测试 `上下文组装_前缀稳定` 断言 A/B+C+D 不变）；`/admin stats` 与日志可查实时命中率 |
-| @响应率 > 95%（扣除冷却） | msg_id 去重 + 冷却期队列化，被动触发链路全覆盖；测试覆盖冷却边界 |
+| @响应率 > 95%（扣除冷却） | 双事件去重（@/全量同 msg_id 协调，@ 语义优先）+ 冷却期队列化，被动触发链路全覆盖；测试覆盖冷却边界与双事件到达顺序 |
 | 暖群自然度 ≥ 60% | 决策 Prompt（Block F 暖群提示：话题/情绪）+ 互动增强（锚点 @ 仅在 30 分钟活跃窗口内） |
 | 搜索硬错误率 ≤ 5% | 10 分钟话题缓存 + 失败兜底文案；ReAct 工具结果截断 |
 | 153k 水位不崩溃不死循环 | WatermarkManager 三级治理（删 E 头部→缩 D→蒸馏+降级），蒸馏后重建上下文；测试覆盖蒸馏/降级/静默重置 |
@@ -122,7 +168,7 @@ WarmupScheduler（30s 扫描）──▶ 密度/沉默/频控判定 ──▶ �
 
 ```bash
 cd Tests && dotnet test
-# 33 个用例：前缀稳定、水位压缩与降级恢复、冷却/频控/去重、输出风控、ReAct 死循环防护、指令解析
+# 64 个用例：前缀稳定、水位压缩与降级恢复、冷却/频控/双事件去重（@/全量协调）、输出风控、ReAct 死循环防护、指令解析、发送队列包体
 ```
 
 ## 目录结构
@@ -139,7 +185,10 @@ Services/Search/  DuckDuckGo 搜索实现
 Services/Fun/     随机互动（反驳/复读/OSM/反向艾特/叫哥）
 Services/Safety/  输入/输出风控
 Services/Commands/ 指令解析与执行
+Services/WebUi/   WebUI 控制台 API（事件总线/试聊拦截/SSE）
 Persona/persona.md 人设（热重载）
+webui/            WebUI 前端源码（React + Tailwind + Vite）
+wwwroot/webui/    WebUI 前端构建产物（UseStaticFiles 直接托管）
 deploy/           宝塔部署指南
 Tests/            xUnit 测试
 ```

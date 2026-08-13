@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 
 namespace RainBot.Models;
 
@@ -57,6 +57,46 @@ public class Attachment
     public string Url { get; set; } = "";
 }
 
+/// <summary>
+/// 消息 @ 提及（新版 payload 的 mentions 字段）。
+/// 官方文档声称不含机器人自身，但实际推送会包含：@ 机器人时对应项的
+/// is_you=true（"是否机器人自己"），是判断全量消息是否 @ 机器人的权威信号。
+/// </summary>
+public class Mention
+{
+    /// <summary>被 @ 用户的 ID（OpenID 格式）</summary>
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    /// <summary>是否为机器人</summary>
+    [JsonPropertyName("bot")]
+    public bool IsBot { get; set; }
+
+    /// <summary>是否为当前机器人自己（权威的 @ 信号）</summary>
+    [JsonPropertyName("is_you")]
+    public bool IsYou { get; set; }
+
+    /// <summary>群成员 OpenID（群聊场景）</summary>
+    [JsonPropertyName("member_openid")]
+    public string MemberOpenId { get; set; } = "";
+
+    /// <summary>用户 OpenID（单聊场景）</summary>
+    [JsonPropertyName("user_openid")]
+    public string UserOpenId { get; set; } = "";
+
+    /// <summary>用户名/群名片</summary>
+    [JsonPropertyName("username")]
+    public string Username { get; set; } = "";
+
+    /// <summary>@ 范围（如 single=单人）</summary>
+    [JsonPropertyName("scope")]
+    public string Scope { get; set; } = "";
+
+    /// <summary>群内角色</summary>
+    [JsonPropertyName("member_role")]
+    public string MemberRole { get; set; } = "";
+}
+
 public interface IBotMessage
 {
     public string Id { get; }
@@ -87,6 +127,9 @@ public class GroupAtMessage : IBotMessage
 
     [JsonPropertyName("attachments")]
     public Attachment[] Attachments { get; set; } = [];
+
+    [JsonPropertyName("mentions")]
+    public List<Mention> Mentions { get; set; } = [];
 
     [JsonIgnore]
     public string OpenId => GroupOpenId;
@@ -128,6 +171,9 @@ public class GroupMessage : IBotMessage
 
     [JsonPropertyName("msg_seq")]
     public long MsgSeq { get; set; } = 0;
+
+    [JsonPropertyName("mentions")]
+    public List<Mention> Mentions { get; set; } = [];
 
     [JsonIgnore]
     public string OpenId => GroupOpenId;

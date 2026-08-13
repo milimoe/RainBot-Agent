@@ -30,6 +30,25 @@ public class RainConfig
     /// <summary>SayNo 反驳不词汇表 JSON 路径（相对运行目录，缺失时自动生成默认词表，编辑后热重载）</summary>
     public string SayNoPath { get; set; } = "sayno.json";
 
+    /// <summary>
+    /// 公网访问基址（域名，如 https://bot.example.com），只需设置一次。
+    /// 所有静态资源（如 OSM 梗图）都以该域名 + wwwroot 相对路径对外提供。
+    /// 留空时 OSM 梗图等依赖公网地址的功能自动禁用。
+    /// </summary>
+    public string PublicBaseUrl { get; set; } = "";
+
+    /// <summary>
+    /// 调试模式：开启后在每次对话输出末尾追加一行统计「x tokens, x tools」
+    /// （x = 本轮输入+输出 token 总数、工具调用次数）。适合排查成本与工具行为。
+    /// </summary>
+    public bool DebugMode { get; set; } = false;
+
+    /// <summary>
+    /// Markdown 回复：开启后所有文本回复以 Markdown 消息（msg_type=2）发送到 QQ 网关，
+    /// 而不是纯文本（msg_type=0）。调试模式的统计行同时改为块引用格式「&gt; x tokens, x tools」。
+    /// </summary>
+    public bool MarkdownReply { get; set; } = false;
+
     /// <summary>机器人名字（用于识别全量消息中的 @ 触发）</summary>
     public string BotName { get; set; } = "雨";
 
@@ -157,10 +176,10 @@ public class FunConfig
     public int ReplyNoProbability { get; set; } = 16;
 
     /// <summary>
-    /// 反驳不命中时，以该概率改用烂梗 API 回复（另一种随机表现形式，原版 30%）。
-    /// URL 为空则始终用词表。
+    /// 反驳不命中时，以该概率改用烂梗 API 回复（另一种随机表现形式）。
+    /// 默认为空：留空不触发该分支，始终使用词表回复。
     /// </summary>
-    public string ReplyNoMemeUrl { get; set; } = "https://hguofichp.cn:10086/machine/getRandOne";
+    public string ReplyNoMemeUrl { get; set; } = "";
     public int ReplyNoMemeProbability { get; set; } = 30;
 
     /// <summary>随机复读：延迟后原样复读（50% 概率加 desuwa～）</summary>
@@ -171,10 +190,13 @@ public class FunConfig
     /// <summary>复读忽略内容（含这些词的文本不复读）</summary>
     public List<string> RepeatIgnoreWords { get; set; } = [];
 
-    /// <summary>随机 OSM：概率发送一张 OSM 梗图（图片 URL 列表，空则功能自动禁用）</summary>
+    /// <summary>
+    /// 随机 OSM：概率发送一张 OSM 梗图。
+    /// 图片不再手动配置路径：自动扫描 wwwroot/osm/（含子目录），
+    /// 对外地址 = Rain.PublicBaseUrl + 相对路径（域名只需设置一次）。
+    /// </summary>
     public bool EnableOsm { get; set; } = true;
     public int OsmProbability { get; set; } = 2;
-    public List<string> OsmImages { get; set; } = [];
 
     /// <summary>反向艾特：@ 机器人时把 @ 弹回发送者（不阻断 AI 回复）</summary>
     public bool EnableReverseAt { get; set; } = true;

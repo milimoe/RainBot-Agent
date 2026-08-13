@@ -2,22 +2,23 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Options;
 using RainBot.Models;
+using RainBot.Services.Config;
 
 namespace RainBot.Services.QQ;
 
 /// <summary>
-/// QQ 官方 API 发送服务（复用参考项目实现，修复沙箱 Host 统一管理）
+/// QQ 官方 API 发送服务（复用参考项目实现，修复沙箱 Host 统一管理）。
+/// 凭据来自 BotConfigService：WebUI 修改 AppID/Secret 后即时生效（Token 缓存会被清空）。
 /// </summary>
-public class QQBotService(IOptions<BotConfig> botConfig, ILogger<QQBotService> logger, IHttpClientFactory httpClientFactory, IMemoryCache memoryCache)
+public class QQBotService(BotConfigService botConfigService, ILogger<QQBotService> logger, IHttpClientFactory httpClientFactory, IMemoryCache memoryCache)
 {
-    private BotConfig BotConfig { get; } = botConfig.Value;
+    private BotConfig BotConfig => botConfigService.Current; // 每次访问取最新凭据
     private ILogger<QQBotService> Logger { get; } = logger;
     private HttpClient HttpClient { get; } = httpClientFactory.CreateClient();
     private IMemoryCache MemoryCache { get; } = memoryCache;
 
-    private const string AccessTokenCacheKey = "QQBotAccessToken";
+    private const string AccessTokenCacheKey = BotConfigService.AccessTokenCacheKey;
 
     public async Task<string> GetAccessTokenAsync(bool useCache = true)
     {
@@ -60,6 +61,25 @@ public class QQBotService(IOptions<BotConfig> botConfig, ILogger<QQBotService> l
         {
             { "content", "\r\n" + content.Trim() },
             { "msg_type", 0 }
+        };
+        if (!string.IsNullOrEmpty(msgId)) requestBody.Add("msg_id", msgId);
+        if (msgSeq.HasValue) requestBody.Add("msg_seq", msgSeq.Value);
+        await PostJsonAsync($"{BotConfig.ApiHost}/v2/groups/{groupOpenId}/messages", requestBody);
+    }
+
+    /// <summary>
+    /// 发送群 Markdown 消息（msg_type=2，开启 Rain.MarkdownReply 时使用）。
+    /// </summary>
+    /// <param name="groupOpenId">群 OpenID</param>
+    /// <param name="markdownContent">Markdown 内容（QQ 支持标题/加粗/列表/块引用等子集语法）</param>
+    /// <param name="msgId">被动回复时传原消息 ID 形成回复引用</param>
+    /// <param name="msgSeq">发多条消息时递增，防止服务器去重</param>
+    public async Task SendGroupMarkdownAsync(string groupOpenId, string markdownContent, string? msgId = null, long? msgSeq = null)
+    {
+        Dictionary<string, object> requestBody = new()
+        {
+            { "msg_type", 2 },
+            { "markdown", new Dictionary<string, object> { ["content"] = markdownContent.Trim() } }
         };
         if (!string.IsNullOrEmpty(msgId)) requestBody.Add("msg_id", msgId);
         if (msgSeq.HasValue) requestBody.Add("msg_seq", msgSeq.Value);

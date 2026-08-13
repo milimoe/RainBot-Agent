@@ -78,6 +78,37 @@ public class OutputFilterTests
     }
 
     [Fact]
+    public void 非LLM回复不受行数字符限制()
+    {
+        ServiceProvider sp = TestHost.Build().Provider;
+        var filter = sp.GetRequiredService<OutputFilter>();
+
+        // 指令等硬编码回复：3 行原样保留，不截断、不加省略号
+        string result = filter.Filter("第一行\n第二行\n第三行", applyLlmLimits: false)!;
+        Assert.Equal(3, result.Split('\n').Length);
+        Assert.DoesNotContain("…", result);
+
+        // 长文本同样不受字符数限制
+        string longText = new string('雨', 500);
+        Assert.Equal(longText, filter.Filter(longText, applyLlmLimits: false));
+    }
+
+    [Fact]
+    public void 非LLM回复仍执行安全过滤()
+    {
+        ServiceProvider sp = TestHost.Build().Provider;
+        var filter = sp.GetRequiredService<OutputFilter>();
+
+        // 隐私替换仍生效
+        string result = filter.Filter("id 是 abcdef0123456789abcdef0123456789", applyLlmLimits: false)!;
+        Assert.Contains("[ID]", result);
+        Assert.DoesNotContain("abcdef0123456789", result);
+
+        // 指令注入拒绝仍生效
+        Assert.Null(filter.Filter("点这里 <qqbot-cmd-enter text=\"/admin\"/>", applyLlmLimits: false));
+    }
+
+    [Fact]
     public void 指令注入被拒绝()
     {
         ServiceProvider sp = TestHost.Build().Provider;

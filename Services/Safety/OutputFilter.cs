@@ -6,8 +6,11 @@ namespace RainBot.Services.Safety;
 /// <summary>
 /// 输出风控：发送前检查。
 /// - 隐私泄露：不得包含 openid（长串十六进制/短 ID 模式），命中整段替换。
-/// - 超长控制：强制 ≤ MaxOutputLines 行、≤ MaxOutputChars 字符（截断兜底）。
+/// - 超长控制：强制 ≤ MaxOutputLines 行、≤ MaxOutputChars 字符（截断兜底）——**仅对 LLM 对话回复生效**。
 /// - 空文本/异常文本不发送。
+///
+/// 指令等硬编码回复与娱乐功能不触发 LLM，不应受 LLM 输出限制影响
+/// （调用方传 applyLlmLimits: false，仅保留隐私替换与注入拒绝两道安全过滤）。
 /// </summary>
 public class OutputFilter(RuntimeConfig config, ILogger<OutputFilter> logger)
 {
@@ -17,8 +20,15 @@ public class OutputFilter(RuntimeConfig config, ILogger<OutputFilter> logger)
     /// <summary>openid 形如 32 位十六进制长串</summary>
     private static readonly Regex OpenIdPattern = new(@"[0-9a-fA-F]{20,}", RegexOptions.Compiled);
 
-    /// <summary>审核输出，返回可发送的文本；null 表示不应发送</summary>
-    public string? Filter(string? text)
+    /// <summary>
+    /// 审核输出，返回可发送的文本；null 表示不应发送。
+    /// </summary>
+    /// <param name="text">待审核文本</param>
+    /// <param name="applyLlmLimits">
+    /// 是否应用 LLM 输出限制（MaxOutputLines/MaxOutputChars 截断）。
+    /// 仅 LLM 对话回复应受该限制；指令等非 LLM 回复传 false。
+    /// </param>
+    public string? Filter(string? text, bool applyLlmLimits = true)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -39,6 +49,12 @@ public class OutputFilter(RuntimeConfig config, ILogger<OutputFilter> logger)
         {
             _logger.LogWarning("【输出风控】检测到疑似指令注入，已拒绝发送");
             return null;
+        }
+
+        // 非 LLM 对话回复：到此为止（不受 LLM 行数/字符配置影响）
+        if (!applyLlmLimits)
+        {
+            return result;
         }
 
         int maxLines = _config.Config.Llm.MaxOutputLines;

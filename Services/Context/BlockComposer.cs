@@ -150,8 +150,8 @@ public class BlockComposer(
     /// <summary>清理消息中的富文本标签（@ 标签替换为可读形式）</summary>
     private static string CleanContent(string content)
     {
-        // <@!openid> → @用户（保留可读性）
-        return Regex.Replace(content, @"<@![^>]+>", m => "@用户")
+        // <@openid>（新格式）或 <@!openid>（历史格式）→ @用户（保留可读性）
+        return Regex.Replace(content, @"<@!?[^>]+>", m => "@用户")
             .Replace("<reply>", "")
             .Replace("</reply>", "")
             .Replace("<break/>", "\n")

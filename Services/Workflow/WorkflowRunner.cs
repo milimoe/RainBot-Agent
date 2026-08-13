@@ -76,10 +76,21 @@ public class WorkflowRunner(
             }
             else
             {
+                string content = text;
+                // 调试模式：输出末尾追加一行「x tokens, x tools」统计（输入+输出 token、工具调用次数）；
+                // Markdown 回复模式下使用块引用格式「> x tokens, x tools」
+                if (_config.Config.DebugMode)
+                {
+                    int tokens = (result.Usage?.PromptTokens ?? 0) + (result.Usage?.CompletionTokens ?? 0);
+                    string footer = _config.Config.MarkdownReply
+                        ? $"> {tokens} tokens, {result.ToolCallCount} tools"
+                        : $"{tokens} tokens, {result.ToolCallCount} tools";
+                    content = $"{text}\n{footer}";
+                }
                 await _sendQueue.EnqueueAsync(new SendTask
                 {
                     GroupOpenId = ctx.GroupOpenId,
-                    Content = text,
+                    Content = content,
                     MsgId = replyMsgId
                 });
                 if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("群 {Group} 触发「{Type}」已回复：{Text}", ctx.GroupOpenId, ctx.Type, text);

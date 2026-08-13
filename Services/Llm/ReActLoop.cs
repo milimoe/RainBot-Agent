@@ -24,6 +24,7 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
         List<ToolDef> tools = _toolRegistry.GetToolDefs();
         Usage? lastUsage = null;
         string? lastText = null;
+        int toolCallCount = 0;
 
         for (int round = 0; round <= maxRounds; round++)
         {
@@ -39,7 +40,7 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
             catch (Exception ex)
             {
                 _logger.LogError(ex, "LLM 调用失败（round={Round}）", round);
-                return new ReActResult { Text = fallback, Usage = lastUsage, Failed = true };
+                return new ReActResult { Text = fallback, Usage = lastUsage, ToolCallCount = toolCallCount, Failed = true };
             }
 
             lastUsage = result.Usage;
@@ -47,6 +48,7 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
 
             if (result.Message.ToolCalls is { Count: > 0 })
             {
+                toolCallCount += result.Message.ToolCalls.Count;
                 // 追加助手工具调用消息
                 working.Add(new ChatMessage
                 {
@@ -75,7 +77,7 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
             lastText = fallback;
         }
 
-        return new ReActResult { Text = lastText, Usage = lastUsage, Failed = false };
+        return new ReActResult { Text = lastText, Usage = lastUsage, ToolCallCount = toolCallCount, Failed = false };
     }
 
     private static string Truncate(string text, int max) => text.Length <= max ? text : text[..max] + "…";
@@ -85,5 +87,8 @@ public class ReActResult
 {
     public required string Text { get; init; }
     public Usage? Usage { get; init; }
+
+    /// <summary>本轮工作流实际执行的工具调用次数（0 = 未调用工具）</summary>
+    public int ToolCallCount { get; init; }
     public bool Failed { get; init; }
 }

@@ -61,11 +61,12 @@ public static class TestHost
         services.AddSingleton<WatermarkManager>();
         services.AddSingleton<CommandParser>();
         services.AddMemoryCache();
-        services.AddSingleton(Options.Create(new BotConfig()));
+        services.AddSingleton<BotConfigService>();
         services.AddScoped<Services.QQ.QQBotService>();
         services.AddSingleton<Services.QQ.BotStatus>();
         services.AddSingleton<SendQueue>();
         services.AddSingleton<Services.Fun.SayNoWordsService>();
+        services.AddSingleton<Services.Fun.OsmImageCatalog>();
         services.AddSingleton<Services.Fun.FunService>();
         services.AddSingleton<IHttpClientFactory>(_ => new FakeHttpClientFactory(llmResponder));
 

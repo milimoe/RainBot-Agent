@@ -12,13 +12,15 @@ namespace RainBot.Services.Config;
 public class RuntimeConfig
 {
     private readonly RainConfig _config;
+    private readonly RainConfig _pristine; // 启动时 appsettings/环境变量的原始快照（恢复默认用）
     private readonly Database _db;
     private readonly ILogger<RuntimeConfig> _logger;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
-    public RuntimeConfig(IOptions<RainConfig> options, Database db, ILogger<RuntimeConfig> logger)
+    public RuntimeConfig(IOptions<RainConfig> options, IConfiguration configuration, Database db, ILogger<RuntimeConfig> logger)
     {
         _config = options.Value;
+        _pristine = configuration.GetSection("Rain").Get<RainConfig>() ?? new RainConfig();
         _db = db;
         _logger = logger;
     }
@@ -34,6 +36,11 @@ public class RuntimeConfig
             Dictionary<string, string> overrides = await _db.GetAllSettingsAsync();
             foreach ((string key, string value) in overrides)
             {
+                // QQ 网关凭据（Bot.AppId / Bot.Secret）由 BotConfigService 负责加载，这里静默跳过
+                if (key == "Bot.AppId" || key == "Bot.Secret")
+                {
+                    continue;
+                }
                 if (TryApplyOverride(key, value, out string error))
                 {
                     _logger.LogInformation("已从数据库加载配置覆盖：{Key} = {Value}", key, value);
@@ -83,6 +90,39 @@ public class RuntimeConfig
         string? dbValue = await _db.GetSettingAsync(key);
         if (dbValue != null) return dbValue;
         return GetDefault(key);
+    }
+
+    /// <summary>
+    /// 恢复参数默认值：删除数据库覆盖项，并把运行值重置为 appsettings/环境变量的原始值。
+    /// 返回 null 表示成功，否则返回错误信息。
+    /// </summary>
+    public async Task<string?> ResetAsync(string key)
+    {
+        await _lock.WaitAsync();
+        try
+        {
+            string canonical = AllKeys().FirstOrDefault(k => NormalizeKey(k) == NormalizeKey(key)) ?? "";
+            if (canonical.Length == 0)
+            {
+                return $"未知参数：{key}。可用 /admin list 查看全部参数。";
+            }
+            string? defaultValue = GetDefaultValue(_pristine, canonical);
+            if (defaultValue == null)
+            {
+                return $"无法确定参数 {canonical} 的默认值。";
+            }
+            await _db.DeleteSettingAsync(canonical);
+            if (!TryApplyOverride(canonical, defaultValue, out string error))
+            {
+                return error;
+            }
+            _logger.LogInformation("运行时参数已恢复默认：{Key} = {Value}", canonical, defaultValue);
+            return null;
+        }
+        finally
+        {
+            _lock.Release();
+        }
     }
 
     /// <summary>列出所有参数（含默认值 + 覆盖标记）</summary>
@@ -171,6 +211,9 @@ public class RuntimeConfig
                 case "Fun.CallBrotherDelaySeconds": _config.Fun.CallBrotherDelaySeconds = ParseInt(value, nameof(_config.Fun.CallBrotherDelaySeconds)); return true;
                 case "PersonaPath": _config.PersonaPath = value; return true;
                 case "SayNoPath": _config.SayNoPath = value; return true;
+                case "PublicBaseUrl": _config.PublicBaseUrl = value; return true;
+                case "DebugMode": _config.DebugMode = ParseBool(value, nameof(_config.DebugMode)); return true;
+                case "MarkdownReply": _config.MarkdownReply = ParseBool(value, nameof(_config.MarkdownReply)); return true;
                 case "BotName": _config.BotName = value; return true;
                 case "Bot.OpenId": _config.BotOpenId = value; return true;
                 default:
@@ -214,14 +257,14 @@ public class RuntimeConfig
         return result;
     }
 
-    private string? GetDefault(string key) => AllKeys().FirstOrDefault(k => NormalizeKey(k) == NormalizeKey(key)) is string found ? GetDefaultValue(found) : null;
+    private string? GetDefault(string key) => AllKeys().FirstOrDefault(k => NormalizeKey(k) == NormalizeKey(key)) is string found ? GetDefaultValue(_config, found) : null;
 
-    private string? GetDefaultValue(string key)
+    private static string? GetDefaultValue(object root, string key)
     {
         try
         {
             // 序列化配置对象，按路径取默认值
-            object? current = _config;
+            object? current = root;
             foreach (string part in key.Split('.'))
             {
                 var prop = current!.GetType().GetProperty(part);
@@ -232,6 +275,7 @@ public class RuntimeConfig
                 null => null,
                 bool b => b.ToString().ToLowerInvariant(),
                 double d => d.ToString("0.##"),
+                IEnumerable<string> list => JsonSerializer.Serialize(list),
                 _ => current.ToString()
             };
         }
@@ -258,6 +302,6 @@ public class RuntimeConfig
         "Fun.EnableOsm", "Fun.OsmProbability",
         "Fun.EnableReverseAt", "Fun.ReverseAtProbability",
         "Fun.EnableCallBrother", "Fun.CallBrotherProbability", "Fun.CallBrotherDelaySeconds",
-        "PersonaPath", "SayNoPath", "BotName", "Bot.OpenId"
+        "PersonaPath", "SayNoPath", "PublicBaseUrl", "DebugMode", "MarkdownReply", "BotName", "Bot.OpenId"
     ];
 }

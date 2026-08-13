@@ -113,8 +113,13 @@ public class SayNoWordsTests
         var sayNo = sp.GetRequiredService<SayNoWordsService>();
         var fun = sp.GetRequiredService<FunService>();
         RuntimeConfig config = sp.GetRequiredService<RuntimeConfig>();
+        // 关闭其余随机互动，只保留反驳不（避免复读/叫哥等随机命中干扰断言）
         config.Config.Fun.ReplyYesProbability = 0;
         config.Config.Fun.ReplyNoProbability = 100;
+        config.Config.Fun.RepeatProbability = 0;
+        config.Config.Fun.CallBrotherProbability = 0;
+        config.Config.Fun.OsmProbability = 0;
+        config.Config.Fun.ReverseAtProbability = 0;
 
         // 默认："不要了"因忽略词"要"不触发反驳
         Assert.False((await fun.TryRespondAsync(TestHelpers.Msg("g", "u1", "不要了"))).Handled);
