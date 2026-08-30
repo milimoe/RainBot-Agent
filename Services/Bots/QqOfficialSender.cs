@@ -19,11 +19,17 @@ public class QqOfficialSender(QQBotService qqBotService, BotInstanceStore store,
     {
         QqOfficialConfig? credentials = _store.Get(request.BotId)?.Qq;
 
-        // QQ 官方侧的私聊（C2C）入站尚未接入，这里只做防御：不打无把握的发送
+        // C2C 私聊：官方不支持发送图片，OSM 梗图等自动降级纯文本
         if (request.IsPrivate)
         {
-            _logger.LogWarning("实例 {BotId} 请求私聊发送，但 QQ 官方通道暂不支持私聊（C2C 入站未接入）", request.BotId);
-            return false;
+            if (!string.IsNullOrWhiteSpace(request.ImageUrl))
+            {
+                _logger.LogInformation("实例 {BotId} 私聊不支持图片，已降级为纯文本发送", request.BotId);
+            }
+            string c2cContent = BuildContent(request);
+            return request.Markdown
+                ? await _qqBotService.SendC2CMarkdownAsync(request.RawGroupId, c2cContent, request.ReplyMsgId, request.MsgSeq, credentials)
+                : await _qqBotService.SendC2CTextAsync(request.RawGroupId, c2cContent, request.ReplyMsgId, request.MsgSeq, credentials);
         }
 
         string content = BuildContent(request);

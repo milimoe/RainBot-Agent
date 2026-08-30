@@ -118,6 +118,40 @@ public class QQBotService(BotConfigService botConfigService, ILogger<QQBotServic
         return PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/groups/{groupOpenId}/messages", requestBody, credentials);
     }
 
+    /// <summary>
+    /// 发送 C2C 私聊文本消息（POST /v2/users/{openid}/messages）。
+    /// </summary>
+    /// <param name="userOpenId">用户 OpenID（C2C 单聊对端）</param>
+    /// <param name="content">文本内容</param>
+    /// <param name="msgId">被动回复时传原消息 ID 形成回复引用</param>
+    /// <param name="msgSeq">发多条消息时递增，防止服务器去重</param>
+    public Task<bool> SendC2CTextAsync(string userOpenId, string content, string? msgId = null, long? msgSeq = null, QqOfficialConfig? credentials = null)
+    {
+        Dictionary<string, object> requestBody = new()
+        {
+            { "content", "\r\n" + content.Trim() },
+            { "msg_type", 0 }
+        };
+        if (!string.IsNullOrEmpty(msgId)) requestBody.Add("msg_id", msgId);
+        if (msgSeq.HasValue) requestBody.Add("msg_seq", msgSeq.Value);
+        return PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/users/{userOpenId}/messages", requestBody, credentials);
+    }
+
+    /// <summary>
+    /// 发送 C2C 私聊 Markdown 消息（msg_type=2，开启 Rain.MarkdownReply 时使用）。
+    /// </summary>
+    public Task<bool> SendC2CMarkdownAsync(string userOpenId, string markdownContent, string? msgId = null, long? msgSeq = null, QqOfficialConfig? credentials = null)
+    {
+        Dictionary<string, object> requestBody = new()
+        {
+            { "msg_type", 2 },
+            { "markdown", new Dictionary<string, object> { ["content"] = markdownContent.Trim() } }
+        };
+        if (!string.IsNullOrEmpty(msgId)) requestBody.Add("msg_id", msgId);
+        if (msgSeq.HasValue) requestBody.Add("msg_seq", msgSeq.Value);
+        return PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/users/{userOpenId}/messages", requestBody, credentials);
+    }
+
     /// <summary>上传群媒体（图片等，保留参考项目能力）</summary>
     public async Task<UploadMediaResult> UploadGroupMediaAsync(string groupOpenId, int fileType, string url, QqOfficialConfig? credentials = null)
     {

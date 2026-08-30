@@ -31,6 +31,7 @@ public class MessageDispatcher
     private readonly ILogger<MessageDispatcher> _logger;
     private readonly ConcurrentDedupe _dedupeAt;   // @ 事件同类重复推送
     private readonly ConcurrentDedupe _dedupeFull; // 全量事件同类重复推送
+    private readonly ConcurrentDedupe _dedupeC2c;  // C2C 私聊事件同类重复推送
     private readonly ConcurrentDedupe _atSeen;     // 已按 @ 处理过的 msg_id（全量事件随后到达时跳过）
     private readonly ConcurrentDedupe _fullSeen;   // 已按全量入队过的 msg_id（@ 事件随后到达时跳过副作用）
 
@@ -44,6 +45,7 @@ public class MessageDispatcher
         TimeSpan window = TimeSpan.FromSeconds(config.Config.Safety.DedupeWindowSeconds);
         _dedupeAt = new ConcurrentDedupe(window);
         _dedupeFull = new ConcurrentDedupe(window);
+        _dedupeC2c = new ConcurrentDedupe(window);
         _atSeen = new ConcurrentDedupe(window);
         _fullSeen = new ConcurrentDedupe(window);
     }
@@ -66,8 +68,7 @@ public class MessageDispatcher
                 await HandleGroupFullAsync(botId, data);
                 break;
             case "C2C_MESSAGE_CREATE":
-                // MVP 聚焦群聊，私聊仅记录
-                if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug("收到 C2C 消息（暂不处理）");
+                await HandleC2CAsync(botId, data);
                 break;
             default:
                 if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug("未处理事件: {Event}", eventType);
@@ -168,6 +169,49 @@ public class MessageDispatcher
             IsAtRobot = isAt,
             IsAdmin = await _config.IsAdminAsync(senderOpenId),
             IsFullMessage = true
+        });
+    }
+
+    /// <summary>
+    /// C2C 私聊消息（C2C_MESSAGE_CREATE，Intents 1&lt;&lt;25）：
+    /// 单事件推送（无 @/全量双事件问题），会话键 = {实例Id}:p{用户OpenID}，与 OneBot 私聊共用隔离规则。
+    /// 私聊里每条消息都是对机器人说的（IsAtRobot=true），直接进入被动触发链路。
+    /// 官方 C2C 支持被动回复（msg_id 引用原消息），故 IsFullMessage=false；msg_seq 由发送队列递增。
+    /// 去重键加 "p" 前缀防与群消息 msg_id 序列重叠（参考 OneBot 处理），
+    /// IncomingMessage.MsgId 保留原始值供被动回复引用。
+    /// </summary>
+    private async Task HandleC2CAsync(string botId, JsonElement data)
+    {
+        C2CMessage? c2c = JsonSerializer.Deserialize<C2CMessage>(data.GetRawText());
+        if (c2c == null || string.IsNullOrEmpty(c2c.Author.UserOpenId))
+        {
+            return;
+        }
+        if (_dedupeC2c.IsDuplicate("p" + c2c.Id))
+        {
+            if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug("[C2C] 重复推送已忽略（msg_id={MsgId}）", c2c.Id);
+            return;
+        }
+        _dedupeC2c.Mark("p" + c2c.Id);
+
+        string senderOpenId = c2c.Author.UserOpenId;
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("[C2C] id={Id} sender={Sender} content={Content}", c2c.Id, senderOpenId, c2c.Content);
+        }
+
+        await _queue.EnqueueAsync(new IncomingMessage
+        {
+            BotId = botId,
+            MsgId = c2c.Id,
+            GroupOpenId = BotKeys.Private(botId, senderOpenId),
+            SenderOpenId = senderOpenId,
+            Username = c2c.Author.Username,
+            Content = c2c.Content,
+            IsAtRobot = true,
+            IsAdmin = await _config.IsAdminAsync(senderOpenId),
+            IsFullMessage = false,
+            IsPrivate = true
         });
     }
 

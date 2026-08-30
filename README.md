@@ -153,7 +153,7 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 机器人以**实例**为单位管理（WebUI「机器人」页）：一个实例 = 一个机器人身份（QQ 官方 AppID 或 OneBot 机器人 QQ 号）+ 若干监听/发送通道。实例可随时增删改、启停，改动即时生效。
 
 - **数据隔离**：内部群键 = `{实例Id}:{原始群号}`，群画像 / 用户画像 / 历史 / 统计按实例天然隔离，不同机器人互不串味；老数据已由一次性迁移归入默认实例 `qq`。
-- **QQ 官方**：每个启用的 QqOfficial 实例一条 WebSocket 网关连接，凭据按实例维护（旧版 `Bot` 段自动迁移为默认实例）。
+- **QQ 官方**：每个启用的 QqOfficial 实例一条 WebSocket 网关连接，凭据按实例维护（旧版 `Bot` 段自动迁移为默认实例）；支持群聊（@/全量双事件去重）与 **C2C 私聊**（`C2C_MESSAGE_CREATE` 入站 → 会话键 `{实例Id}:p{用户OpenID}`；出站 `POST /v2/users/{openid}/messages` 支持被动回复引用；官方 C2C 不支持发图，OSM 等自动降级纯文本；需在开放平台开通私聊权限）。
 - **OneBot11**（go-cqhttp / NapCat / Lagrange 等，当前支持群聊）：
   - HTTP：本服务接收上报 `POST /onebot/v11/event/{实例Id}` + 调用实现的 HTTP API 发消息；
   - WS 正向：本服务主动连接 OneBot 实现；WS 反向：OneBot 实现连入 `WS /onebot/v11/ws/{实例Id}`；
@@ -214,23 +214,18 @@ WarmupScheduler（30s 扫描）──▶ 密度/沉默/频控判定 ──▶ �
 
 ```bash
 cd Tests && dotnet test
-# 102 个用例：前缀稳定、水位压缩与降级恢复、冷却/频控/双事件去重（@/全量协调）、输出风控、
+# 109 个用例：前缀稳定、水位压缩与降级恢复、冷却/频控/双事件去重（@/全量协调）、输出风控、
 # ReAct 死循环防护、指令解析、发送队列包体、MCP 工具桥接（命名/Schema/注册顺序）、
-# 多机器人实例（键规则/私聊入站/发送统计）
+# 多机器人实例（键规则/私聊入站/发送统计）、C2C 私聊（入站解析/去重/出站降级）
 ```
 
 ## 后续计划（Roadmap）
 
 按优先级排列，均可独立落地：
 
-1. **QQ 官方机器人支持 C2C 私聊**（补齐与 OneBot 私聊的能力对称）
-   - 入站：处理 `C2C_MESSAGE_CREATE`（当前仅记录后忽略）；`Author` 模型已同时携带 `member_openid`/`user_openid`，单聊取 `user_openid`，现有解析函数可直接复用；
-   - 会话键沿用 `{实例Id}:p{用户OpenID}`，与 OneBot 私聊共用一套隔离规则；
-   - 出站：`POST {ApiHost}/v2/users/{openid}/messages`（`QQBotService` 增 `SendC2CTextAsync` / `SendC2CMarkdownAsync`），`QqOfficialSender` 遇到 `IsPrivate` 改走 C2C 分支（目前是防御性拒绝）；
-   - 约束：官方 C2C **不支持发送图片**，OSM 梗图等自动降级纯文本；需在开放平台开通私聊权限；Intents 已含 `1<<25`（群聊+C2C），无需调整。
-2. **聊天页按实例筛选**：会话列表加实例下拉/筛选，实例多时快速定位。
-3. **发送失败重试策略**：目前失败只计数不重试，可按错误类型做有限次退避重试（频控类除外）。
-4. MCP 工具调用结果进统计与日志面板；WebUI 状态页透出各 MCP server 工具数。
+1. **聊天页按实例筛选**：会话列表加实例下拉/筛选，实例多时快速定位。
+2. **发送失败重试策略**：目前失败只计数不重试，可按错误类型做有限次退避重试（频控类除外）。
+3. MCP 工具调用结果进统计与日志面板；WebUI 状态页透出各 MCP server 工具数。
 
 ## 目录结构
 
