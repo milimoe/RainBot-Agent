@@ -13,6 +13,7 @@ export default function ChatPage({ boot, onAuthFail }) {
   const [groups, setGroups] = useState([]);
   const [active, setActive] = useState(SIM_GROUP);
   const [filter, setFilter] = useState('');
+  const [botFilter, setBotFilter] = useState('');
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 767px)').matches);
   const [mobileShowChat, setMobileShowChat] = useState(false);
 
@@ -60,13 +61,26 @@ export default function ChatPage({ boot, onAuthFail }) {
   }, [loadGroups]);
 
   const filtered = useMemo(() => {
+    // 实例筛选：只看该实例的会话（试聊群始终保留）；空值 = 全部实例
+    let list = botFilter ? groups.filter((g) => g.group === SIM_GROUP || (g.botId || 'unknown') === botFilter) : groups;
     const q = filter.trim();
-    if (!q) return groups;
-    return groups.filter(
+    if (!q) return list;
+    return list.filter(
       (g) =>
         groupName(g.group).includes(q) || g.group.includes(q) || (g.botName || '').includes(q) || (g.botId || '').includes(q)
     );
-  }, [groups, filter]);
+  }, [groups, filter, botFilter]);
+
+  // 实例列表（基于全量会话，不随筛选变化；否则选中实例后下拉选项坍缩无法切回）
+  const bots = useMemo(() => {
+    const map = new Map();
+    for (const g of groups) {
+      if (g.group === SIM_GROUP) continue;
+      const key = g.botId || 'unknown';
+      if (!map.has(key)) map.set(key, { id: key, name: g.botName || key });
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+  }, [groups]);
 
   const activeGroup = groups.find((g) => g.group === active) || null;
   const showList = !isMobile || !mobileShowChat;
@@ -85,6 +99,9 @@ export default function ChatPage({ boot, onAuthFail }) {
             }}
             filter={filter}
             setFilter={setFilter}
+            bots={bots}
+            botFilter={botFilter}
+            setBotFilter={setBotFilter}
           />
         </div>
       )}

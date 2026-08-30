@@ -7,9 +7,10 @@ import { IconSearch } from './Icons.jsx';
 /**
  * 聊天页左侧会话列表（仿 NTQQ 会话列表）：
  * 按机器人实例分组展示（群聊与私聊同属一个实例），试聊群置顶；
+ * 多实例时提供实例下拉筛选，快速定位目标机器人；
  * 条目含头像 / 会话名 / 最后一条消息预览 / 时间 / 状态徽标。
  */
-export default function GroupList({ groups, active, onSelect, filter, setFilter }) {
+export default function GroupList({ groups, active, onSelect, filter, setFilter, bots, botFilter, setBotFilter }) {
   // 按实例分组：{ sims, sections:[{ botId, botName, items }] }
   const { sims, sections } = useMemo(() => {
     const simList = groups.filter((g) => g.group === SIM_GROUP);
@@ -77,6 +78,20 @@ export default function GroupList({ groups, active, onSelect, filter, setFilter 
             className="w-full bg-transparent text-[13px] outline-none placeholder:text-qq-sub"
           />
         </div>
+        {(bots?.length ?? 0) > 1 && (
+          <select
+            value={botFilter}
+            onChange={(e) => setBotFilter(e.target.value)}
+            className="mt-2 w-full cursor-pointer rounded-md bg-qq-bg px-2.5 py-1.5 text-[13px] text-qq-sub outline-none"
+          >
+            <option value="">全部实例</option>
+            {bots.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       <div className="qq-scroll flex-1 overflow-y-auto pb-2">
         {groups.length === 0 && (
