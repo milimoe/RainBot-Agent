@@ -98,6 +98,7 @@ builder.Services.AddSingleton<OsmImageCatalog>(); // wwwroot/osm 目录扫描 + 
 builder.Services.AddSingleton<FunService>();
 
 // ---------- MCP 工具（Model Context Protocol） ----------
+builder.Services.AddSingleton<ToolCallRecorder>(); // 工具调用记录（WebUI 日志面板「工具调用」视图）
 builder.Services.AddSingleton<McpClientManager>();
 
 // ---------- WebUI 控制台 ----------

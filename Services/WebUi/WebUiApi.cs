@@ -73,6 +73,25 @@ public static class WebUiApi
             });
         });
 
+        // ---------- 工具调用记录（内置与 MCP 工具统一，内存环形缓冲） ----------
+        api.MapGet("/tool-calls", (RainBot.Services.Tools.ToolCallRecorder recorder, int? limit) =>
+        {
+            int take = Math.Clamp(limit ?? 100, 1, 200);
+            return Results.Json(new
+            {
+                calls = recorder.Latest(take).Select(c => new
+                {
+                    seq = c.Seq,
+                    time = c.Time,
+                    tool = c.Tool,
+                    arguments = c.Arguments,
+                    result = c.Result,
+                    elapsedMs = c.ElapsedMs,
+                    success = c.Success
+                })
+            });
+        });
+
         // ---------- DeepSeek 余额 ----------
         api.MapGet("/deepseek/balance", async (DeepSeekBalanceService balanceService, bool? refresh) =>
         {

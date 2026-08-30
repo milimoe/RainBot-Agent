@@ -152,6 +152,28 @@ export default function StatusPage({ onAuthFail }) {
           <BalanceCard onAuthFail={onAuthFail} />
         </div>
 
+        {/* MCP 工具（仅配置了 MCP server 时显示） */}
+        {(health?.mcp?.servers?.length ?? 0) > 0 && (
+          <div className="overflow-hidden rounded-xl border border-qq-border bg-white">
+            <div className="flex items-center justify-between border-b border-qq-border/70 px-4 py-3">
+              <div className="text-sm font-medium">🔌 MCP 工具服务</div>
+              <span className="text-xs text-qq-sub">
+                共 {health.mcp.toolCount} 个工具 · {health.mcp.servers.filter((s) => s.connected).length}/{health.mcp.servers.length} 已连接
+              </span>
+            </div>
+            <div className="divide-y divide-qq-border/50">
+              {health.mcp.servers.map((s) => (
+                <div key={s.name} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-[12.5px]">
+                  <span className="font-medium">{s.name}</span>
+                  <Badge tone={s.connected ? 'green' : 'red'}>{s.connected ? '已连接' : '失败'}</Badge>
+                  <span className="text-qq-sub">{s.toolCount} 个工具</span>
+                  {s.error && <span className="min-w-0 flex-1 truncate text-xs text-qq-red/80" title={s.error}>{s.error}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* 每群统计 */}
         <div className="overflow-hidden rounded-xl border border-qq-border bg-white">
           <div className="border-b border-qq-border/70 px-4 py-3 text-sm font-medium">每群运行状态</div>

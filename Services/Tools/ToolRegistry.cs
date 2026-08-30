@@ -14,11 +14,13 @@ public class ToolRegistry
 {
     private readonly List<RegisteredTool> _tools = [];
     private readonly ILogger<ToolRegistry> _logger;
+    private readonly ToolCallRecorder? _recorder;
     private string? _schemaJson;
 
-    public ToolRegistry(ILogger<ToolRegistry> logger)
+    public ToolRegistry(ILogger<ToolRegistry> logger, ToolCallRecorder? recorder = null)
     {
         _logger = logger;
+        _recorder = recorder;
         RegisterBuiltins();
     }
 
@@ -118,28 +120,35 @@ public class ToolRegistry
         }).ToList();
     }
 
-    /// <summary>执行工具（由 ReActLoop 调用）</summary>
+    /// <summary>执行工具（由 ReActLoop 调用）。统一埋点：所有工具调用（含 MCP）进 ToolCallRecorder。</summary>
     public async Task<string> ExecuteAsync(string name, string argumentsJson, ToolExecutionContext context)
     {
+        System.Diagnostics.Stopwatch? sw = _recorder == null ? null : System.Diagnostics.Stopwatch.StartNew();
+        string result;
         try
         {
             ToolExecutor? executor = _executors.GetValueOrDefault(name);
             if (executor == null)
             {
-                return $"未知工具：{name}";
+                result = $"未知工具：{name}";
             }
-            return await executor(argumentsJson, context);
+            else
+            {
+                result = await executor(argumentsJson, context);
+            }
         }
         catch (JsonException ex)
         {
             _logger.LogWarning("工具 {Name} 参数解析失败：{Error}", name, ex.Message);
-            return $"工具参数解析失败：{ex.Message}";
+            result = $"工具参数解析失败：{ex.Message}";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "工具 {Name} 执行异常", name);
-            return $"工具执行异常：{ex.Message}";
+            result = $"工具执行异常：{ex.Message}";
         }
+        _recorder?.Record(name, argumentsJson, result, sw!.ElapsedMilliseconds);
+        return result;
     }
 
     // ---------- 执行器注册 ----------

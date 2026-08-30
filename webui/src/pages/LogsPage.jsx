@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, AuthError } from '../lib/api.js';
 import { fmtFull } from '../lib/util.js';
+import { Badge } from '../components/ui.jsx';
 import { IconPause, IconPlay } from '../components/Icons.jsx';
 import { toast } from '../components/ui.jsx';
 
@@ -16,10 +17,132 @@ const LEVEL_COLOR = {
 };
 
 /**
- * 日志页：轮询 /api/webui/logs，展示与 ILogger 同源的日志输出。
+ * 日志页：日志视图（轮询 /api/webui/logs，与 ILogger 同源）+ 工具调用视图
+ * （轮询 /api/webui/tool-calls，内置与 MCP 工具调用记录：名称/参数/结果/耗时/成败）。
  * 支持级别过滤 / 关键字搜索 / 暂停 / 异常详情展开。
  */
 export default function LogsPage({ onAuthFail }) {
+  const [view, setView] = useState('logs'); // 'logs' | 'tools'
+  return (
+    <div className="flex h-full min-w-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-qq-border bg-qq-panel px-3 py-1.5">
+        {[
+          ['logs', '日志'],
+          ['tools', '工具调用'],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setView(key)}
+            className={`rounded-md px-3 py-1 text-xs transition-colors ${
+              view === key ? 'bg-qq-blue text-white' : 'text-qq-sub hover:text-qq-text'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === 'logs' ? <LogStream onAuthFail={onAuthFail} /> : <ToolCalls onAuthFail={onAuthFail} />}
+    </div>
+  );
+}
+
+/** 工具调用视图：展示最近工具调用（含 MCP），点击行展开参数与结果全文 */
+function ToolCalls({ onAuthFail }) {
+  const [calls, setCalls] = useState([]);
+  const [expanded, setExpanded] = useState(null);
+  const [paused, setPaused] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api('/api/webui/tool-calls?limit=200');
+      setCalls(data.calls || []);
+    } catch (e) {
+      if (e instanceof AuthError) onAuthFail?.();
+    }
+  }, [onAuthFail]);
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(() => {
+      if (!paused) load();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [load, paused]);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col bg-qq-panel">
+      <div className="flex shrink-0 items-center gap-2 border-b border-qq-border px-3 py-2 text-[11px] text-qq-sub">
+        <span>最近 {calls.length} 次调用（含内置与 MCP 工具，内存保留 200 条，重启清零）</span>
+        <button
+          className="ml-auto flex items-center gap-1 rounded border border-qq-border px-2 py-1 hover:border-qq-blue hover:text-qq-blue-deep"
+          onClick={() => setPaused((v) => !v)}
+        >
+          {paused ? <IconPlay size={11} /> : <IconPause size={11} />}
+          {paused ? '继续' : '暂停'}
+        </button>
+      </div>
+      <div className="qq-scroll min-h-0 flex-1 overflow-auto bg-[#fafbfc]">
+        {calls.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-sm text-qq-sub">
+            暂无工具调用记录（机器人调用 web_search / MCP 工具后出现）
+          </div>
+        ) : (
+          <table className="w-full min-w-[560px] border-collapse font-mono text-[11.5px] leading-5">
+            <tbody>
+              {calls.map((c) => (
+                <ToolCallRow
+                  key={c.seq}
+                  call={c}
+                  expanded={expanded === c.seq}
+                  onToggle={() => setExpanded(expanded === c.seq ? null : c.seq)}
+                />
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ToolCallRow({ call, expanded, onToggle }) {
+  return (
+    <>
+      <tr
+        className={`cursor-pointer border-b border-qq-border/50 align-top hover:bg-qq-hover/50 ${expanded ? 'bg-qq-hover/60' : ''}`}
+        onClick={onToggle}
+        title="点击展开参数与结果"
+      >
+        <td className="w-24 shrink-0 whitespace-nowrap px-2 py-1 text-qq-sub">{fmtFull(call.time).slice(5)}</td>
+        <td className="w-56 max-w-56 truncate px-1 py-1 font-semibold text-qq-blue-deep" title={call.tool}>
+          {call.tool}
+        </td>
+        <td className="w-16 shrink-0 whitespace-nowrap px-1 py-1 text-qq-sub">
+          {call.elapsedMs >= 1000 ? `${(call.elapsedMs / 1000).toFixed(1)}s` : `${call.elapsedMs}ms`}
+        </td>
+        <td className="w-20 shrink-0 px-1 py-1">
+          <Badge tone={call.success ? 'green' : 'red'}>{call.success ? '成功' : '失败'}</Badge>
+        </td>
+        <td className="max-w-0 truncate px-2 py-1 text-qq-sub" title={call.result}>
+          {(call.result || '').replace(/\s+/g, ' ')}
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="border-b border-qq-border/50 bg-[#f6f8fa]">
+          <td colSpan={5} className="whitespace-pre-wrap break-all px-4 py-2 text-[11px] leading-5">
+            <div className="text-qq-sub">参数：</div>
+            <div className="text-qq-text">{call.arguments || '(无)'}</div>
+            <div className="mt-1.5 text-qq-sub">结果：</div>
+            <div className={call.success ? 'text-qq-text' : 'text-qq-red/90'}>{call.result || '(空)'}</div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+/** 日志流视图（原有日志页内容） */
+function LogStream({ onAuthFail }) {
   const [entries, setEntries] = useState([]);
   const [seq, setSeq] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -81,7 +204,7 @@ export default function LogsPage({ onAuthFail }) {
   }, [entries, level, query]);
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-qq-panel">
+    <div className="flex min-h-0 flex-1 flex-col bg-qq-panel">
       {/* 工具栏 */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-qq-border px-3 py-2">
         <div className="flex items-center gap-1">
