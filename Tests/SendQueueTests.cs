@@ -14,6 +14,7 @@ namespace RainBot.Tests;
 public class SendQueueTests
 {
     private const string Group = "group_send_test";
+    private const string BotId = "qq";
 
     private static async Task<(ServiceProvider Sp, List<string> Bodies)> BuildWithCaptureAsync(Action<RuntimeConfig>? configure = null)
     {
@@ -64,7 +65,7 @@ public class SendQueueTests
         try
         {
             SendQueue queue = sp.GetRequiredService<SendQueue>();
-            await queue.EnqueueAsync(new SendTask { GroupOpenId = Group, Content = "**加粗**测试" });
+            await queue.EnqueueAsync(new SendTask { BotId = BotId, GroupOpenId = Group, Content = "**加粗**测试" });
 
             Assert.True(await WaitForAsync(() => bodies.Count > 0), "未捕获到发送请求");
 
@@ -87,7 +88,7 @@ public class SendQueueTests
         try
         {
             SendQueue queue = sp.GetRequiredService<SendQueue>();
-            await queue.EnqueueAsync(new SendTask { GroupOpenId = Group, Content = "普通文本" });
+            await queue.EnqueueAsync(new SendTask { BotId = BotId, GroupOpenId = Group, Content = "普通文本" });
 
             Assert.True(await WaitForAsync(() => bodies.Count > 0), "未捕获到发送请求");
 

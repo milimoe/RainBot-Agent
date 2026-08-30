@@ -18,11 +18,10 @@ namespace RainBot.Services.Fun;
 /// - 移除原版 SC 记分、控制台彩色日志；
 /// - 概率/开关/延迟全部可热改（/admin set Fun.*）；OSM 梗图自动扫描 wwwroot/osm 目录，URL = Rain.PublicBaseUrl + 相对路径（域名只需设置一次）。
 /// </summary>
-public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService qqBotService, SayNoWordsService sayNoWords, OsmImageCatalog osmCatalog, IHttpClientFactory httpClientFactory, ILogger<FunService> logger)
+public class FunService(RuntimeConfig config, SendQueue sendQueue, SayNoWordsService sayNoWords, OsmImageCatalog osmCatalog, IHttpClientFactory httpClientFactory, ILogger<FunService> logger)
 {
     private readonly RuntimeConfig _config = config;
     private readonly SendQueue _sendQueue = sendQueue;
-    private readonly QQBotService _qqBotService = qqBotService;
     private readonly SayNoWordsService _sayNoWords = sayNoWords;
     private readonly OsmImageCatalog _osmCatalog = osmCatalog;
     private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
@@ -93,7 +92,12 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService 
     /// <summary>随机反驳是：消息恰好是「是」→ 概率反驳</summary>
     private async Task<FunResult> ReplyTextAsync(IncomingMessage msg, string content)
     {
-        await _sendQueue.EnqueueAsync(new SendTask { GroupOpenId = msg.GroupOpenId, Content = content });
+        await _sendQueue.EnqueueAsync(new SendTask
+        {
+            BotId = msg.BotId,
+            GroupOpenId = msg.GroupOpenId,
+            Content = content
+        });
         LogHit(msg, content);
         return FunResult.HandledAndBlock;
     }
@@ -181,28 +185,32 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService 
     private async Task<FunResult> ReverseAtAsync(IncomingMessage msg, string clean)
     {
         string content = string.IsNullOrEmpty(clean) ? "👀" : $"{clean}";
+        // @ 语义交给各平台渲染（QQ 官方 = <@!openid> 文本标签；OneBot11 = at 消息段）
         await _sendQueue.EnqueueAsync(new SendTask
         {
+            BotId = msg.BotId,
             GroupOpenId = msg.GroupOpenId,
-            Content = $"<@!{msg.SenderOpenId}> {content}"
+            Content = content,
+            AtUserId = msg.SenderOpenId
         });
         LogHit(msg, "反向艾特");
         return FunResult.HandledContinue; // 继续被动触发（LLM 回复）
     }
 
-    /// <summary>随机 OSM：上传图片并发送（图片来自 wwwroot/osm 目录扫描 + 公网域名拼接）</summary>
+    /// <summary>随机 OSM：发送一张梗图（URL 来自 wwwroot/osm 扫描 + 公网域名拼接，平台无关）</summary>
     private async Task<FunResult> ReplyOsmAsync(IncomingMessage msg, string url)
     {
         try
         {
-            UploadMediaResult upload = await _qqBotService.UploadGroupMediaAsync(msg.GroupOpenId, 1, url);
-            if (upload.IsSuccess && !string.IsNullOrEmpty(upload.FileInfo))
+            await _sendQueue.EnqueueAsync(new SendTask
             {
-                await _qqBotService.SendGroupImageAsync(msg.GroupOpenId, upload.FileInfo);
-                LogHit(msg, "随机OSM");
-                return FunResult.HandledAndBlock;
-            }
-            logger.LogWarning("OSM 图片上传失败：{Error}", upload.Error);
+                BotId = msg.BotId,
+                GroupOpenId = msg.GroupOpenId,
+                Content = "",
+                ImageUrl = url
+            });
+            LogHit(msg, "随机OSM");
+            return FunResult.HandledAndBlock;
         }
         catch (Exception ex)
         {
@@ -223,6 +231,7 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService 
         string content = Random.Shared.Next(2) == 0 ? clean : clean + "desuwa～";
         await _sendQueue.EnqueueAsync(new SendTask
         {
+            BotId = msg.BotId,
             GroupOpenId = msg.GroupOpenId,
             Content = content,
             DelaySeconds = delay
@@ -252,8 +261,10 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, QQBotService 
         };
         await _sendQueue.EnqueueAsync(new SendTask
         {
+            BotId = msg.BotId,
             GroupOpenId = msg.GroupOpenId,
-            Content = $"<@!{msg.SenderOpenId}> {suffix}",
+            Content = suffix,
+            AtUserId = msg.SenderOpenId,
             DelaySeconds = fun.CallBrotherDelaySeconds
         });
         LogHit(msg, $"随机叫哥（{suffix}）");

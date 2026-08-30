@@ -2,29 +2,33 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using RainBot.Models;
+using RainBot.Services.Bots;
 using RainBot.Services.Config;
 using RainBot.Services.WebUi;
 
 namespace RainBot.Services.QQ;
 
 /// <summary>
-/// QQ 官方 WebSocket 网关连接（复用参考项目状态机：Op 2/6/1/10/11/7/9、
-/// 心跳 ACK 检测、session 断线续传、5 秒重连；事件分发改为 MessageDispatcher）。
-/// 凭据来自 BotConfigService：WebUI 修改 AppID/Secret 时触发 CredentialsChanged，
-/// 断开现有连接并立即用新凭据重连。
+/// QQ 官方网关连接（单实例）：状态机 Op 2/6/1/10/11/7/9、心跳 ACK 检测、
+/// session 断线续传、5 秒重连；事件分发给 MessageDispatcher（带实例 Id）。
+/// 凭据按实例从 BotInstanceStore 实时取，WebUI 改完立即生效。
 /// </summary>
-public class QQBotWebSocketService(
-    ILogger<QQBotWebSocketService> logger,
+public class QqGatewayConnection(
+    string botId,
+    ILogger<QqGatewayConnection> logger,
     IHttpClientFactory httpClientFactory,
-    BotConfigService botConfigService,
     IServiceProvider serviceProvider,
+    BotInstanceStore store,
+    BotConnectionRegistry registry,
     BotStatus botStatus,
-    WebUiBridge? webUi = null) : BackgroundService
+    WebUiBridge? webUi = null)
 {
-    private readonly ILogger<QQBotWebSocketService> _logger = logger;
+    private readonly string _botId = botId;
+    private readonly ILogger<QqGatewayConnection> _logger = logger;
     private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
-    private readonly BotConfigService _botConfigService = botConfigService;
     private readonly IServiceProvider _serviceProvider = serviceProvider;
+    private readonly BotInstanceStore _store = store;
+    private readonly BotConnectionRegistry _registry = registry;
     private readonly BotStatus _botStatus = botStatus;
     private readonly WebUiBridge? _webUi = webUi;
 
@@ -34,41 +38,20 @@ public class QQBotWebSocketService(
     private int _lastSeq;
     private int _heartbeatIntervalMs;
     private Timer? _heartbeatTimer;
-    /// <summary>是否收到上次心跳的 ACK</summary>
     private bool _isHeartbeatAckReceived = true;
-    /// <summary>连续未收到 ACK 的次数</summary>
     private int _missedHeartbeatCount;
-    /// <summary>最大容忍连续无 ACK 次数</summary>
     private const int MaxMissedHeartbeats = 3;
     private readonly Lock _heartbeatLock = new();
 
-    /// <summary>凭据变更：断开现有连接（外层循环立即用新凭据重连）</summary>
-    private void OnCredentialsChanged()
-    {
-        _logger.LogInformation("QQ 网关凭据已变更，断开现有 WebSocket 连接…");
-        try
-        {
-            if (_webSocket?.State == WebSocketState.Open)
-            {
-                _webSocket.Abort();
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "关闭 WebSocket 时出错（忽略）");
-        }
-        _cts?.Cancel();
-    }
+    /// <summary>当前实例的 QQ 官方配置（实时取，WebUI 改完立即生效）</summary>
+    private QqOfficialConfig Credentials => _store.Get(_botId)?.Qq ?? new QqOfficialConfig();
 
-    public override Task StartAsync(CancellationToken cancellationToken)
-    {
-        _botConfigService.CredentialsChanged += OnCredentialsChanged;
-        return base.StartAsync(cancellationToken);
-    }
+    /// <summary>网关/API 主机（沙箱或正式，按实例配置）</summary>
+    private string GatewayHost => Credentials.UseSandbox ? "https://sandbox.api.sgroup.qq.com" : "https://api.sgroup.qq.com";
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>主重连循环</summary>
+    public async Task RunAsync(CancellationToken stoppingToken)
     {
-        // 主重连循环
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -81,9 +64,8 @@ public class QQBotWebSocketService(
             }
             catch (Exception ex)
             {
-                _botStatus.WebSocketConnected = false;
-                PublishStatus();
-                _logger.LogError(ex, "WebSocket 连接异常崩溃，5秒后重连...");
+                SetConnected(false);
+                _logger.LogError(ex, "[{BotId}] WebSocket 连接异常崩溃，5秒后重连...", _botId);
                 await Task.Delay(5000, stoppingToken);
             }
         }
@@ -93,15 +75,21 @@ public class QQBotWebSocketService(
     {
         StopHeartbeatTimer();
 
+        QqOfficialConfig credentials = Credentials;
+        if (string.IsNullOrWhiteSpace(credentials.AppId) || string.IsNullOrWhiteSpace(credentials.Secret))
+        {
+            _logger.LogInformation("[{BotId}] QQ 官方凭据未配置，等待配置后连接", _botId);
+            await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
+            return;
+        }
+
         string gatewayUrl = await GetGatewayUrlAsync(stoppingToken);
-        if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("获取网关地址: {GatewayUrl}", gatewayUrl);
+        if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("[{BotId}] 获取网关地址: {GatewayUrl}", _botId, gatewayUrl);
 
         _webSocket = new ClientWebSocket();
         await _webSocket.ConnectAsync(new Uri(gatewayUrl), stoppingToken);
-        _botStatus.WebSocketConnected = true;
-        _botStatus.LastConnectedAt = DateTimeOffset.UtcNow;
-        PublishStatus();
-        if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("WebSocket 已连接");
+        SetConnected(true);
+        if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("[{BotId}] WebSocket 已连接", _botId);
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
 
@@ -117,7 +105,7 @@ public class QQBotWebSocketService(
                     result = await _webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
-                        _logger.LogWarning("服务端主动关闭连接，准备重连");
+                        _logger.LogWarning("[{BotId}] 服务端主动关闭连接，准备重连", _botId);
                         await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
                         return;
                     }
@@ -133,19 +121,29 @@ public class QQBotWebSocketService(
         }
         catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
         {
-            // 凭据变更等触发的主动断开：外层循环立即重连
-            if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("WebSocket 连接已主动断开（凭据变更等），准备重连");
+            _logger.LogInformation("[{BotId}] WebSocket 连接已主动断开，准备重连", _botId);
         }
         catch (Exception ex)
         {
-            if (_logger.IsEnabled(LogLevel.Error)) _logger.LogError(ex, "WebSocket 接收消息异常");
+            if (_logger.IsEnabled(LogLevel.Error)) _logger.LogError(ex, "[{BotId}] WebSocket 接收消息异常", _botId);
         }
         finally
         {
-            _botStatus.WebSocketConnected = false;
-            PublishStatus();
+            SetConnected(false);
             StopHeartbeatTimer();
         }
+    }
+
+    private void SetConnected(bool connected)
+    {
+        _registry.SetConnected(_botId, connected);
+        // 兼容旧的单实例状态（/health 与 WebUI 状态页）
+        _botStatus.WebSocketConnected = connected;
+        if (connected)
+        {
+            _botStatus.LastConnectedAt = DateTimeOffset.UtcNow;
+        }
+        PublishStatus();
     }
 
     /// <summary>推送连接状态给 WebUI 实时事件流</summary>
@@ -162,12 +160,11 @@ public class QQBotWebSocketService(
             if (payload.SequenceNumber > 0)
                 _lastSeq = payload.SequenceNumber;
 
-            // 调试：打印每个收到的 WS 帧（截断长数据，便于排查消息接收问题）
             if (_logger.IsEnabled(LogLevel.Debug))
             {
                 string dataText = payload.Data?.ToString() ?? "";
-                _logger.LogDebug("WS 帧：op={Op} t={EventType} s={Seq} d={Data}",
-                    payload.Op, payload.EventType, payload.SequenceNumber, dataText.Length <= 600 ? dataText : dataText[..600] + "…");
+                _logger.LogDebug("[{BotId}] WS 帧：op={Op} t={EventType} s={Seq} d={Data}",
+                    _botId, payload.Op, payload.EventType, payload.SequenceNumber, dataText.Length <= 600 ? dataText : dataText[..600] + "…");
             }
 
             switch (payload.Op)
@@ -178,7 +175,7 @@ public class QQBotWebSocketService(
                         if (hello != null)
                         {
                             _heartbeatIntervalMs = hello.HeartbeatInterval;
-                            if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("收到 Hello，心跳间隔: {Interval}ms", _heartbeatIntervalMs);
+                            if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("[{BotId}] 收到 Hello，心跳间隔: {Interval}ms", _botId, _heartbeatIntervalMs);
                             StartHeartbeatTimer();
                             if (!string.IsNullOrEmpty(_sessionId))
                                 await SendResumeAsync(stoppingToken);
@@ -189,48 +186,40 @@ public class QQBotWebSocketService(
                     }
 
                 case 0: // Dispatch
+                    if (payload.Data is JsonElement dataElement)
                     {
-                        if (payload.Data is JsonElement dataElement)
-                        {
-                            await HandleDispatchAsync(payload.EventType, dataElement);
-                        }
-                        break;
+                        await HandleDispatchAsync(payload.EventType, dataElement);
                     }
+                    break;
 
                 case 11: // Heartbeat ACK
+                    lock (_heartbeatLock)
                     {
-                        lock (_heartbeatLock)
-                        {
-                            _isHeartbeatAckReceived = true;
-                            _missedHeartbeatCount = 0;
-                        }
-                        _logger.LogTrace("收到心跳 ACK");
-                        break;
+                        _isHeartbeatAckReceived = true;
+                        _missedHeartbeatCount = 0;
                     }
+                    _logger.LogTrace("[{BotId}] 收到心跳 ACK", _botId);
+                    break;
 
                 case 7: // Reconnect
-                    {
-                        _logger.LogWarning("收到 Op 7 (Reconnect)，主动重连");
-                        await ReconnectAsync();
-                        break;
-                    }
+                    _logger.LogWarning("[{BotId}] 收到 Op 7 (Reconnect)，主动重连", _botId);
+                    await ReconnectAsync();
+                    break;
 
                 case 9: // Invalid Session
-                    {
-                        _logger.LogWarning("收到 Op 9 (Invalid Session)，服务器将关闭连接");
-                        _sessionId = null;
-                        _lastSeq = 0;
-                        break;
-                    }
+                    _logger.LogWarning("[{BotId}] 收到 Op 9 (Invalid Session)，服务器将关闭连接", _botId);
+                    _sessionId = null;
+                    _lastSeq = 0;
+                    break;
 
                 default:
-                    if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug("收到未处理的 Op: {Op}", payload.Op);
+                    if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug("[{BotId}] 收到未处理的 Op: {Op}", _botId, payload.Op);
                     break;
             }
         }
         catch (JsonException ex)
         {
-            _logger.LogError(ex, "解析消息失败: {Msg}", message);
+            _logger.LogError(ex, "[{BotId}] 解析消息失败: {Msg}", _botId, message);
         }
     }
 
@@ -244,10 +233,10 @@ public class QQBotWebSocketService(
                 if (!_isHeartbeatAckReceived)
                 {
                     _missedHeartbeatCount++;
-                    _logger.LogWarning("心跳超时，未收到 ACK 次数: {Count}", _missedHeartbeatCount);
+                    _logger.LogWarning("[{BotId}] 心跳超时，未收到 ACK 次数: {Count}", _botId, _missedHeartbeatCount);
                     if (_missedHeartbeatCount >= MaxMissedHeartbeats)
                     {
-                        _logger.LogError("连续 {Max} 次心跳无响应，主动重连", MaxMissedHeartbeats);
+                        _logger.LogError("[{BotId}] 连续 {Max} 次心跳无响应，主动重连", _botId, MaxMissedHeartbeats);
                         _ = ReconnectAsync();
                         return;
                     }
@@ -272,8 +261,7 @@ public class QQBotWebSocketService(
     private async Task SendHeartbeatAsync()
     {
         if (_webSocket?.State != WebSocketState.Open) return;
-        Payload payload = new() { Op = 1, Data = _lastSeq };
-        await SendJsonAsync(payload);
+        await SendJsonAsync(new Payload { Op = 1, Data = _lastSeq });
     }
 
     private async Task SendIdentifyAsync(CancellationToken ct)
@@ -293,7 +281,7 @@ public class QQBotWebSocketService(
             }
         };
         await SendJsonAsync(new Payload { Op = 2, Data = identify });
-        if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("已发送 Identify 鉴权");
+        if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("[{BotId}] 已发送 Identify 鉴权", _botId);
     }
 
     private async Task SendResumeAsync(CancellationToken ct)
@@ -307,7 +295,7 @@ public class QQBotWebSocketService(
             Seq = _lastSeq
         };
         await SendJsonAsync(new Payload { Op = 6, Data = resume });
-        if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("已发送 Resume，session={SessionId}, seq={Seq}", _sessionId, _lastSeq);
+        if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("[{BotId}] 已发送 Resume，session={SessionId}, seq={Seq}", _botId, _sessionId, _lastSeq);
     }
 
     private async Task SendJsonAsync(Payload payload)
@@ -320,13 +308,13 @@ public class QQBotWebSocketService(
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "发送 WebSocket 消息失败");
+            _logger.LogError(ex, "[{BotId}] 发送 WebSocket 消息失败", _botId);
         }
     }
 
     private async Task ReconnectAsync()
     {
-        _logger.LogWarning("执行主动重连");
+        _logger.LogWarning("[{BotId}] 执行主动重连", _botId);
         StopHeartbeatTimer();
         try
         {
@@ -336,7 +324,7 @@ public class QQBotWebSocketService(
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "关闭 WebSocket 时出错");
+            _logger.LogWarning(ex, "[{BotId}] 关闭 WebSocket 时出错", _botId);
         }
         finally
         {
@@ -345,7 +333,15 @@ public class QQBotWebSocketService(
         _cts?.Cancel();
         _cts?.Dispose();
         _cts = null;
-        // 外层循环自动重连
+    }
+
+    public void Stop()
+    {
+        StopHeartbeatTimer();
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = null;
+        _webSocket?.Dispose();
     }
 
     private async Task<string> GetGatewayUrlAsync(CancellationToken ct)
@@ -353,10 +349,10 @@ public class QQBotWebSocketService(
         using HttpClient? httpClient = _httpClientFactory.CreateClient();
         string accessToken = await GetAccessTokenAsync(false);
         httpClient.DefaultRequestHeaders.Add("Authorization", $"QQBot {accessToken}");
-        HttpResponseMessage resp = await httpClient.GetAsync($"{_botConfigService.Current.GatewayHost}/gateway", ct);
+        HttpResponseMessage resp = await httpClient.GetAsync($"{GatewayHost}/gateway", ct);
         resp.EnsureSuccessStatusCode();
         string json = await resp.Content.ReadAsStringAsync(ct);
-        JsonDocument doc = JsonDocument.Parse(json);
+        using JsonDocument doc = JsonDocument.Parse(json);
         return doc.RootElement.GetProperty("url").GetString() ?? throw new Exception("无法获取网关地址");
     }
 
@@ -364,7 +360,7 @@ public class QQBotWebSocketService(
     {
         using IServiceScope scope = _serviceProvider.CreateScope();
         QQBotService qqBotService = scope.ServiceProvider.GetRequiredService<QQBotService>();
-        return await qqBotService.GetAccessTokenAsync(useCache);
+        return await qqBotService.GetAccessTokenAsync(useCache, Credentials);
     }
 
     private async Task HandleDispatchAsync(string eventType, JsonElement data)
@@ -377,36 +373,110 @@ public class QQBotWebSocketService(
                 if (data.ValueKind == JsonValueKind.Object && data.TryGetProperty("session_id", out JsonElement sid))
                 {
                     _sessionId = sid.GetString();
-                    if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("获取 Session ID: {SessionId}", _sessionId);
+                    if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("[{BotId}] 获取 Session ID: {SessionId}", _botId, _sessionId);
                 }
                 break;
             case "RESUMED":
-                if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("会话恢复成功 (RESUMED)");
+                if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("[{BotId}] 会话恢复成功 (RESUMED)", _botId);
                 break;
             case "C2C_MESSAGE_CREATE":
             case "GROUP_AT_MESSAGE_CREATE":
             case "GROUP_MESSAGE_CREATE":
                 MessageDispatcher dispatcher = scope.ServiceProvider.GetRequiredService<MessageDispatcher>();
-                await dispatcher.HandleDispatchAsync(eventType, data);
+                await dispatcher.HandleDispatchAsync(_botId, eventType, data);
                 break;
             default:
-                if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug("未处理事件: {Event}", eventType);
+                if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug("[{BotId}] 未处理事件: {Event}", _botId, eventType);
                 break;
+        }
+    }
+}
+
+/// <summary>
+/// QQ 官方网关管理：为每个启用的 QqOfficial 实例维护一条 WebSocket 连接；
+/// 实例在 WebUI 增删改/启停后自动核对（新增即连、删除即断）。
+/// </summary>
+public class QqGatewayService(
+    BotInstanceStore store,
+    IServiceProvider serviceProvider,
+    ILoggerFactory loggerFactory,
+    ILogger<QqGatewayService> logger) : BackgroundService
+{
+    private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(15);
+
+    private readonly Dictionary<string, (QqGatewayConnection Connection, CancellationTokenSource Cts)> _running = [];
+    private readonly BotInstanceStore _store = store;
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
+    private readonly ILoggerFactory _loggerFactory = loggerFactory;
+    private readonly ILogger<QqGatewayService> _logger = logger;
+    private readonly Lock _lock = new();
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _store.InstancesChanged += Reconcile;
+        Reconcile();
+        using PeriodicTimer timer = new(ReconcileInterval);
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+        {
+            Reconcile();
+        }
+    }
+
+    /// <summary>按当前实例配置启动/停止各 QQ 官方连接</summary>
+    private void Reconcile()
+    {
+        lock (_lock)
+        {
+            HashSet<string> wanted = [];
+            foreach (BotInstance instance in _store.All)
+            {
+                if (instance.Platform != BotPlatform.QqOfficial || !instance.Enabled)
+                {
+                    continue;
+                }
+                wanted.Add(instance.Id);
+                if (_running.ContainsKey(instance.Id))
+                {
+                    continue;
+                }
+                CancellationTokenSource cts = new();
+                QqGatewayConnection connection = ActivatorUtilities.CreateInstance<QqGatewayConnection>(
+                    _serviceProvider, instance.Id, _loggerFactory.CreateLogger<QqGatewayConnection>());
+                _running[instance.Id] = (connection, cts);
+                _ = Task.Run(() => connection.RunAsync(cts.Token), CancellationToken.None);
+                _logger.LogInformation("QQ 官方实例 {BotId} 网关已启动", instance.Id);
+            }
+
+            foreach (string stale in _running.Keys.Where(id => !wanted.Contains(id)).ToList())
+            {
+                if (_running.Remove(stale, out (QqGatewayConnection Connection, CancellationTokenSource Cts) entry))
+                {
+                    entry.Cts.Cancel();
+                    entry.Connection.Stop();
+                    entry.Cts.Dispose();
+                    _logger.LogInformation("QQ 官方实例 {BotId} 网关已停止", stale);
+                }
+            }
         }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        _botConfigService.CredentialsChanged -= OnCredentialsChanged;
-        _heartbeatTimer?.Dispose();
-        _cts?.Cancel();
-        if (_webSocket?.State == WebSocketState.Open)
-            await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Service stopping", cancellationToken);
+        lock (_lock)
+        {
+            foreach ((QqGatewayConnection connection, CancellationTokenSource cts) in _running.Values)
+            {
+                cts.Cancel();
+                connection.Stop();
+                cts.Dispose();
+            }
+            _running.Clear();
+        }
         await base.StopAsync(cancellationToken);
     }
 }
 
-/// <summary>机器人连接状态（/health 与运维使用）</summary>
+/// <summary>机器人连接状态（/health 与运维使用，兼容旧的单实例视图）</summary>
 public class BotStatus
 {
     public bool WebSocketConnected { get; set; }

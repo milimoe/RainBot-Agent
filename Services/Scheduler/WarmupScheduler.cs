@@ -1,4 +1,5 @@
 using RainBot.Models;
+using RainBot.Services.Bots;
 using RainBot.Services.Context;
 using RainBot.Services.Topic;
 using RainBot.Services.Trigger;
@@ -63,6 +64,11 @@ public class WarmupScheduler(
             {
                 continue;
             }
+            // 私聊不主动暖场（只有对方说话才回）
+            if (state.IsPrivate || BotKeys.IsPrivateKey(state.GroupOpenId))
+            {
+                continue;
+            }
 
             // 降级恢复：静默足够后彻底重置上下文
             if (await _watermarkManager.TryRecoverDegradedAsync(state.GroupOpenId))
@@ -83,6 +89,7 @@ public class WarmupScheduler(
 
             TriggerContext ctx = new()
             {
+                BotId = BotKeys.GetBotId(state.GroupOpenId),
                 GroupOpenId = state.GroupOpenId,
                 Type = TriggerType.Warmup,
                 Reason = reason,

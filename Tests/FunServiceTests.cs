@@ -127,7 +127,9 @@ public class FunServiceTests
         Assert.False(result.Blocked); // 反向艾特后继续 AI 回复
 
         SendTask task = Assert.Single(queue.PeekPendingForTest());
-        Assert.Contains($"<@!{Sender}>", task.Content);
+        // @ 语义平台无关化：艾特目标在 AtUserId，由各平台发送器渲染（官方 <@!id>，OneBot at 段）
+        Assert.Equal(Sender, task.AtUserId);
+        Assert.Equal("在吗", task.Content);
     }
 
     [Fact]
@@ -148,7 +150,8 @@ public class FunServiceTests
         Assert.True(result.Handled && result.Blocked);
 
         SendTask task = Assert.Single(queue.PeekPendingForTest());
-        Assert.Contains($"<@!{Sender}>", task.Content);
+        // @ 语义平台无关化：艾特目标在 AtUserId，由各平台发送器渲染
+        Assert.Equal(Sender, task.AtUserId);
         // 名字随机截取 1-2 字 + 随机后缀（哥/姐/圣/亲/哈基）
         Assert.Contains(new[] { "哥", "姐", "圣", "亲", "哈基" }, suffix => task.Content.Contains(suffix, StringComparison.Ordinal));
         Assert.True(task.DelaySeconds > 0);

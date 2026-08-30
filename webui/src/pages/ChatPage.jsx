@@ -59,10 +59,14 @@ export default function ChatPage({ boot, onAuthFail }) {
     };
   }, [loadGroups]);
 
-  const filtered = useMemo(
-    () => groups.filter((g) => groupName(g.group).includes(filter.trim()) || g.group.includes(filter.trim())),
-    [groups, filter]
-  );
+  const filtered = useMemo(() => {
+    const q = filter.trim();
+    if (!q) return groups;
+    return groups.filter(
+      (g) =>
+        groupName(g.group).includes(q) || g.group.includes(q) || (g.botName || '').includes(q) || (g.botId || '').includes(q)
+    );
+  }, [groups, filter]);
 
   const activeGroup = groups.find((g) => g.group === active) || null;
   const showList = !isMobile || !mobileShowChat;

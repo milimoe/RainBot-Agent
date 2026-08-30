@@ -62,8 +62,19 @@ public static class TestHost
         services.AddSingleton<CommandParser>();
         services.AddMemoryCache();
         services.AddSingleton<BotConfigService>();
-        services.AddScoped<Services.QQ.QQBotService>();
+        services.AddSingleton<Services.QQ.QQBotService>();
+
+        // 多机器人实例与平台抽象（SendQueue / FunService 依赖）
+        services.AddSingleton<Services.Bots.BotConnectionRegistry>();
+        services.AddSingleton<Services.Bots.BotInstanceStore>();
+        services.AddSingleton<Services.Bots.QqOfficialSender>();
+        services.AddSingleton<Services.OneBot.OneBotManager>();
+        services.AddSingleton<Services.OneBot.OneBotSender>();
+        services.AddSingleton<Services.Bots.BotSenderRouter>();
+        services.AddSingleton<Services.Bots.BotSendStats>();
+
         services.AddSingleton<Services.QQ.BotStatus>();
+        services.AddSingleton<Services.QQ.MessageQueue>();
         services.AddSingleton<SendQueue>();
         services.AddSingleton<Services.Fun.SayNoWordsService>();
         services.AddSingleton<Services.Fun.OsmImageCatalog>();
@@ -79,6 +90,18 @@ public static class TestHost
         (ServiceProvider provider, _) = Build(llmResponder);
         await provider.GetRequiredService<Database>().InitializeAsync();
         await provider.GetRequiredService<RuntimeConfig>().InitializeAsync();
+
+        // 多机器人：测试用默认实例（启用，凭据占位；发送走 FakeHttpClientFactory）
+        Services.Bots.BotInstanceStore store = provider.GetRequiredService<Services.Bots.BotInstanceStore>();
+        await store.InitializeAsync();
+        await store.UpsertAsync(new Models.BotInstance
+        {
+            Id = Database.LegacyBotId,
+            Name = "测试实例",
+            Platform = Models.BotPlatform.QqOfficial,
+            Enabled = true,
+            Qq = new Models.QqOfficialConfig { AppId = "test-appid", Secret = "test-secret" }
+        });
         return provider;
     }
 }

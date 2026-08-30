@@ -89,11 +89,13 @@ public class WorkflowRunner(
                 }
                 await _sendQueue.EnqueueAsync(new SendTask
                 {
+                    BotId = ctx.BotId,
                     GroupOpenId = ctx.GroupOpenId,
                     Content = content,
+                    IsPrivate = ctx.IsPrivate,
                     MsgId = replyMsgId
                 });
-                if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("群 {Group} 触发「{Type}」已回复：{Text}", ctx.GroupOpenId, ctx.Type, text);
+                if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("{Label} {Group} 触发「{Type}」已回复：{Text}", ctx.IsPrivate ? "私聊" : "群", ctx.GroupOpenId, ctx.Type, text);
             }
 
             // 5. 成本统计（缓存命中率监控）

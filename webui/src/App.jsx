@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, AuthError, getToken, openEventStream, setToken } from './lib/api.js';
-import { IconBook, IconChat, IconGear, IconLog, IconPulse, IconSliders } from './components/Icons.jsx';
+import { IconBook, IconChat, IconGear, IconLog, IconPulse, IconRobot, IconSliders } from './components/Icons.jsx';
 import { Toasts, toast } from './components/ui.jsx';
 import ChatPage from './pages/ChatPage.jsx';
 import CommandsPage from './pages/CommandsPage.jsx';
@@ -8,10 +8,12 @@ import ConfigPage from './pages/ConfigPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 import StatusPage from './pages/StatusPage.jsx';
 import LogsPage from './pages/LogsPage.jsx';
+import BotsPage from './pages/BotsPage.jsx';
 
 const PAGES = [
   { id: 'chat', label: '消息', icon: IconChat },
   { id: 'commands', label: '指令', icon: IconBook },
+  { id: 'bots', label: '机器人', icon: IconRobot },
   { id: 'config', label: '配置', icon: IconSliders },
   { id: 'settings', label: '设置', icon: IconGear },
   { id: 'logs', label: '日志', icon: IconLog },
@@ -105,6 +107,7 @@ export default function App() {
       {/* 页面内容 */}
       {page === 'chat' && <ChatPage boot={boot} onAuthFail={() => setNeedToken(true)} />}
       {page === 'commands' && <CommandsPage />}
+      {page === 'bots' && <BotsPage />}
       {page === 'config' && <ConfigPage onAuthFail={() => setNeedToken(true)} />}
       {page === 'settings' && <SettingsPage boot={boot} onAuthFail={() => setNeedToken(true)} />}
       {page === 'logs' && <LogsPage onAuthFail={() => setNeedToken(true)} />}

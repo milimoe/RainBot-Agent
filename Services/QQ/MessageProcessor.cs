@@ -116,8 +116,10 @@ public class MessageProcessor
                     {
                         await _sendQueue.EnqueueAsync(new SendTask
                         {
+                            BotId = message.BotId,
                             GroupOpenId = message.GroupOpenId,
                             Content = filtered,
+                            IsPrivate = message.IsPrivate,
                             // 被动回复的 msg_id 仅对 @ 事件消息有效（官方约束），全量模式消息直接主动发送
                             MsgId = message.IsFullMessage ? null : message.MsgId
                         });
@@ -132,10 +134,14 @@ public class MessageProcessor
         }
 
         // 5. 随机互动（原版 RainBOT 娱乐功能：反驳/复读/OSM/反向艾特/叫哥，纯规则不耗 Token）
-        FunResult fun = await _fun.TryRespondAsync(message);
-        if (fun.Blocked)
+        // 私聊不玩随机互动：反向艾特/叫哥/复读在 1:1 场景下很怪，且会打断正常对话
+        if (!message.IsPrivate)
         {
-            return;
+            FunResult fun = await _fun.TryRespondAsync(message);
+            if (fun.Blocked)
+            {
+                return;
+            }
         }
 
         // 6. 被动触发判定（@ + 冷却）
@@ -157,11 +163,13 @@ public class MessageProcessor
         string recalled = message.IsAtRobot && !string.IsNullOrEmpty(message.SenderOpenId)
             ? await _profileRecaller.RecallAsync(message.GroupOpenId, message.SenderOpenId)
             : "";
-        TriggerContext ctx = new()
-        {
-            GroupOpenId = message.GroupOpenId,
+                TriggerContext ctx = new()
+                {
+                    BotId = message.BotId,
+                    GroupOpenId = message.GroupOpenId,
+                    IsPrivate = message.IsPrivate,
             Type = TriggerType.Passive,
-            Reason = message.IsAtRobot ? "被群友 @ 互动" : "群友互动",
+            Reason = message.IsPrivate ? "私聊互动" : message.IsAtRobot ? "被群友 @ 互动" : "群友互动",
             SenderOpenId = message.SenderOpenId,
             RecalledProfile = recalled,
             AllowProfileUpdate = false

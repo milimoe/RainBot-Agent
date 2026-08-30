@@ -116,6 +116,52 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 
 **反驳不词表（sayno.json）**：首次运行自动生成默认词表文件（13 张表，字段名与原版 RainBOT 一致：`Trigger`、`TriggerBeforeNo`、`IgnoreTriggerAfterNo`、`IgnoreTriggerBeforeCan`、`TriggerAfterYes`、`WillNotSayNo`、`SayNoWords`、`SayDontHaveWords`、`SayNotYesWords`、`SayDontWords`、`SayWantWords`、`SayThinkWords`、`SaySpecialNoWords`）。直接编辑保存即热重载，也可用 `/admin sayno` 指令增删（写回 JSON）。
 
+## MCP 工具接入（Model Context Protocol）
+
+机器人可把外部 MCP server 的工具接入 LLM 工具链（基于官方 [ModelContextProtocol.Core](https://www.nuget.org/packages/ModelContextProtocol.Core) SDK，支持 stdio 与 streamable HTTP 传输）。启动时一次性连接并注册，工具名统一为 `mcp__{server}__{tool}` 与内置工具隔离；单个 server 连接失败只告警跳过，不影响启动。**改配置需重启生效**（保证 Block B 前缀稳定、缓存命中率不受影响）。
+
+配置段 `Rain:Mcp`（appsettings 或环境变量）：
+
+```json
+"Mcp": {
+  "Enabled": true,
+  "Servers": [
+    {
+      "Name": "everything",
+      "Transport": "stdio",
+      "Command": "npx",
+      "Arguments": ["-y", "@modelcontextprotocol/server-everything"]
+    },
+    {
+      "Name": "my-http-server",
+      "Transport": "http",
+      "Url": "https://example.com/mcp",
+      "Headers": { "Authorization": "Bearer xxx" },
+      "TimeoutSeconds": 60
+    }
+  ]
+}
+```
+
+- `Transport`：`stdio`（本地进程，需 `Command`+`Arguments`）或 `http`（需 `Url`，可加 `Headers`）；
+- Windows 下 stdio 若直接命令无法解析，可用 `Command: "cmd"`、`Arguments: ["/c", "npx", "-y", "..."]`；
+- 工具数量与各 server 连接状态可在 `/health` 的 `mcp` 字段查看；
+- 提示：MCP server 相当于授予机器人该 server 的全部工具权限，只接入可信来源。
+
+## 多机器人与 OneBot11 接入
+
+机器人以**实例**为单位管理（WebUI「机器人」页）：一个实例 = 一个机器人身份（QQ 官方 AppID 或 OneBot 机器人 QQ 号）+ 若干监听/发送通道。实例可随时增删改、启停，改动即时生效。
+
+- **数据隔离**：内部群键 = `{实例Id}:{原始群号}`，群画像 / 用户画像 / 历史 / 统计按实例天然隔离，不同机器人互不串味；老数据已由一次性迁移归入默认实例 `qq`。
+- **QQ 官方**：每个启用的 QqOfficial 实例一条 WebSocket 网关连接，凭据按实例维护（旧版 `Bot` 段自动迁移为默认实例）。
+- **OneBot11**（go-cqhttp / NapCat / Lagrange 等，当前支持群聊）：
+  - HTTP：本服务接收上报 `POST /onebot/v11/event/{实例Id}` + 调用实现的 HTTP API 发消息；
+  - WS 正向：本服务主动连接 OneBot 实现；WS 反向：OneBot 实现连入 `WS /onebot/v11/ws/{实例Id}`；
+  - 发送通道按优先级选路（WS 会话优先，HTTP 兜底）；@ 用 at 消息段、引用回复用 reply 段；
+  - 管理页会给出可直接复制的上报地址与反向 WS 地址；机器人 QQ 号收到首条事件自动学习，无需手填；
+  - OneBot11 无原生 Markdown 消息 → `MarkdownReply` 在该平台自动降级为纯文本。
+- **管理员名单**为全局（两平台 ID 格式不同，天然不冲突）；`/health` 的 `bots` 字段透出各实例连接状态。
+
 ## 指令表（管理员为机器人自我维护的 OpenID 列表，与群管理员无关）
 
 > 指令**无需 @ 机器人**，群里直接发送即可（@ 发送同样有效）；管理员指令按权限放行，非管理员会收到提示。全量消息模式下回复不携带 msg_id（官方约束：被动回复仅适用于 @ 事件消息），以主动消息形式发送。
@@ -168,8 +214,23 @@ WarmupScheduler（30s 扫描）──▶ 密度/沉默/频控判定 ──▶ �
 
 ```bash
 cd Tests && dotnet test
-# 64 个用例：前缀稳定、水位压缩与降级恢复、冷却/频控/双事件去重（@/全量协调）、输出风控、ReAct 死循环防护、指令解析、发送队列包体
+# 102 个用例：前缀稳定、水位压缩与降级恢复、冷却/频控/双事件去重（@/全量协调）、输出风控、
+# ReAct 死循环防护、指令解析、发送队列包体、MCP 工具桥接（命名/Schema/注册顺序）、
+# 多机器人实例（键规则/私聊入站/发送统计）
 ```
+
+## 后续计划（Roadmap）
+
+按优先级排列，均可独立落地：
+
+1. **QQ 官方机器人支持 C2C 私聊**（补齐与 OneBot 私聊的能力对称）
+   - 入站：处理 `C2C_MESSAGE_CREATE`（当前仅记录后忽略）；`Author` 模型已同时携带 `member_openid`/`user_openid`，单聊取 `user_openid`，现有解析函数可直接复用；
+   - 会话键沿用 `{实例Id}:p{用户OpenID}`，与 OneBot 私聊共用一套隔离规则；
+   - 出站：`POST {ApiHost}/v2/users/{openid}/messages`（`QQBotService` 增 `SendC2CTextAsync` / `SendC2CMarkdownAsync`），`QqOfficialSender` 遇到 `IsPrivate` 改走 C2C 分支（目前是防御性拒绝）；
+   - 约束：官方 C2C **不支持发送图片**，OSM 梗图等自动降级纯文本；需在开放平台开通私聊权限；Intents 已含 `1<<25`（群聊+C2C），无需调整。
+2. **聊天页按实例筛选**：会话列表加实例下拉/筛选，实例多时快速定位。
+3. **发送失败重试策略**：目前失败只计数不重试，可按错误类型做有限次退避重试（频控类除外）。
+4. MCP 工具调用结果进统计与日志面板；WebUI 状态页透出各 MCP server 工具数。
 
 ## 目录结构
 

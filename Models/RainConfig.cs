@@ -21,6 +21,15 @@ public class RainConfig
     /// <summary>随机互动娱乐配置（移植自原版 RainBOT）</summary>
     public FunConfig Fun { get; set; } = new();
 
+    /// <summary>MCP 工具服务器配置（Model Context Protocol）</summary>
+    public McpConfig Mcp { get; set; } = new();
+
+    /// <summary>
+    /// 机器人实例种子（首次运行写入 bot_instances 表；之后以数据库为准，可在 WebUI 热管理）。
+    /// 老版本 Bot 段（AppId/Secret）会自动迁移为默认实例 qq。
+    /// </summary>
+    public List<BotInstance> Bots { get; set; } = [];
+
     /// <summary>存储配置</summary>
     public StorageConfig Storage { get; set; } = new();
 
@@ -154,6 +163,45 @@ public class SafetyConfig
 
     /// <summary>消息去重窗口（秒），同一 msg_id 重复推送忽略</summary>
     public int DedupeWindowSeconds { get; set; } = 600;
+}
+
+/// <summary>
+/// MCP（Model Context Protocol）工具服务器配置。
+/// 配置段 Rain:Mcp（appsettings 或环境变量），启动时一次性连接并注册工具，
+/// 改配置需重启生效（保 Block B 前缀稳定）。
+/// </summary>
+public class McpConfig
+{
+    /// <summary>是否启用 MCP 工具（默认启用；未配置任何 server 则自动跳过）</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>MCP server 列表</summary>
+    public List<McpServerConfig> Servers { get; set; } = [];
+}
+
+/// <summary>单个 MCP server 连接配置</summary>
+public class McpServerConfig
+{
+    /// <summary>server 名称（唯一；工具名前缀 mcp__{名称}__{工具名}）</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>传输类型：stdio（本地进程）或 http（streamable http / sse 端点）</summary>
+    public string Transport { get; set; } = "stdio";
+
+    /// <summary>stdio 传输：可执行文件（如 npx、python、dotnet）</summary>
+    public string Command { get; set; } = "";
+
+    /// <summary>stdio 传输：启动参数（如 -y @modelcontextprotocol/server-everything）</summary>
+    public List<string> Arguments { get; set; } = [];
+
+    /// <summary>http 传输：MCP 端点 URL</summary>
+    public string Url { get; set; } = "";
+
+    /// <summary>http 传输：请求头（如 Authorization: Bearer xxx）</summary>
+    public Dictionary<string, string> Headers { get; set; } = [];
+
+    /// <summary>工具调用超时（秒，0 = 用默认 60s）</summary>
+    public int TimeoutSeconds { get; set; } = 60;
 }
 
 public class StorageConfig

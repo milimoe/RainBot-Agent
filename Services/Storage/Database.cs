@@ -108,10 +108,89 @@ public class Database
                 summary TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS bot_instances (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL DEFAULT '',
+                platform TEXT NOT NULL DEFAULT 'QqOfficial',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                config_json TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS bot_send_stats (
+                bot_id TEXT PRIMARY KEY,
+                sent INTEGER NOT NULL DEFAULT 0,
+                failed INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            );
             """;
         await cmd.ExecuteNonQueryAsync();
+        await MigrateToBotNamespaceAsync(conn);
         _logger.LogInformation("SQLite 数据库初始化完成");
     }
+
+    /// <summary>
+    /// 多机器人命名空间迁移（一次性）：历史数据的 group_openid 均为裸 openid，
+    /// 统一加默认实例前缀 "qq:"，使其与新的 {实例Id}:{群号} 键规则一致。
+    /// 用 settings 表记录标记，重复执行安全；失败只告警不阻塞启动。
+    /// </summary>
+    private async Task MigrateToBotNamespaceAsync(SqliteConnection conn)
+    {
+        const string MarkerKey = "_migration.botNamespace.v1";
+        if (LegacyBotId.Length == 0)
+        {
+            return;
+        }
+        try
+        {
+            await using (SqliteCommand check = conn.CreateCommand())
+            {
+                check.CommandText = "SELECT value FROM settings WHERE key = $key LIMIT 1;";
+                check.Parameters.AddWithValue("$key", MarkerKey);
+                if (await check.ExecuteScalarAsync() is string existing && existing == "1")
+                {
+                    return;
+                }
+            }
+
+            string prefix = LegacyBotId + ":";
+            (string table, string column)[] targets =
+            [
+                ("messages", "group_openid"),
+                ("users", "group_openid"),
+                ("group_profiles", "group_openid"),
+                ("stats", "group_openid"),
+                ("distill_summaries", "group_openid")
+            ];
+            int total = 0;
+            foreach ((string table, string column) in targets)
+            {
+                await using SqliteCommand update = conn.CreateCommand();
+                // group_openid 中不含 ':' 的即为老数据（新键一定带实例前缀）
+                update.CommandText = $"UPDATE {table} SET {column} = $prefix || {column} WHERE {column} NOT LIKE '%:%';";
+                update.Parameters.AddWithValue("$prefix", prefix);
+                total += await update.ExecuteNonQueryAsync();
+            }
+            if (total > 0)
+            {
+                _logger.LogInformation("多机器人命名空间迁移：{Count} 条历史数据已归入默认实例 {BotId}", total, LegacyBotId);
+            }
+
+            await using SqliteCommand mark = conn.CreateCommand();
+            mark.CommandText = "INSERT INTO settings (key, value) VALUES ($key, '1') ON CONFLICT(key) DO UPDATE SET value = '1';";
+            mark.Parameters.AddWithValue("$key", MarkerKey);
+            await mark.ExecuteNonQueryAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "多机器人命名空间迁移失败（不影响启动，历史数据仍以裸 ID 存在）");
+        }
+    }
+
+    /// <summary>迁移与种子使用的默认实例 Id（对应 QQ 官方网关）</summary>
+    public const string LegacyBotId = "qq";
 
     // ---------- 动态配置 ----------
 
@@ -595,6 +674,107 @@ public class Database
         await cmd.ExecuteNonQueryAsync();
     }
 
+    // ---------- 机器人实例 ----------
+
+    /// <summary>读取全部机器人实例（按 Id 排序，保证顺序确定）</summary>
+    public async Task<List<BotInstanceRow>> GetBotInstancesAsync()
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id, name, platform, enabled, config_json FROM bot_instances ORDER BY id;";
+        await using SqliteDataReader reader = await cmd.ExecuteReaderAsync();
+        List<BotInstanceRow> result = [];
+        while (await reader.ReadAsync())
+        {
+            result.Add(new BotInstanceRow
+            {
+                Id = reader.GetString(0),
+                Name = reader.GetString(1),
+                Platform = reader.GetString(2),
+                Enabled = reader.GetInt32(3) == 1,
+                ConfigJson = reader.GetString(4)
+            });
+        }
+        return result;
+    }
+
+    /// <summary>新增或更新机器人实例</summary>
+    public async Task UpsertBotInstanceAsync(string id, string name, string platform, bool enabled, string configJson)
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO bot_instances (id, name, platform, enabled, config_json, updated_at)
+            VALUES ($id, $name, $platform, $enabled, $json, $ts)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                platform = excluded.platform,
+                enabled = excluded.enabled,
+                config_json = excluded.config_json,
+                updated_at = excluded.updated_at;
+            """;
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.Parameters.AddWithValue("$name", name);
+        cmd.Parameters.AddWithValue("$platform", platform);
+        cmd.Parameters.AddWithValue("$enabled", enabled ? 1 : 0);
+        cmd.Parameters.AddWithValue("$json", configJson);
+        cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>删除机器人实例（其历史数据保留，只是不再有实例归属）</summary>
+    public async Task DeleteBotInstanceAsync(string id)
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM bot_instances WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$id", id);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // ---------- 发送统计 ----------
+
+    public async Task<List<BotSendStatRow>> GetBotSendStatsAsync()
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT bot_id, sent, failed, last_error FROM bot_send_stats ORDER BY bot_id;";
+        await using SqliteDataReader reader = await cmd.ExecuteReaderAsync();
+        List<BotSendStatRow> result = [];
+        while (await reader.ReadAsync())
+        {
+            result.Add(new BotSendStatRow
+            {
+                BotId = reader.GetString(0),
+                Sent = reader.GetInt64(1),
+                Failed = reader.GetInt64(2),
+                LastError = reader.GetString(3)
+            });
+        }
+        return result;
+    }
+
+    public async Task UpsertBotSendStatsAsync(string botId, long sent, long failed, string? lastError)
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO bot_send_stats (bot_id, sent, failed, last_error, updated_at)
+            VALUES ($id, $sent, $failed, $err, $ts)
+            ON CONFLICT(bot_id) DO UPDATE SET
+                sent = excluded.sent,
+                failed = excluded.failed,
+                last_error = excluded.last_error,
+                updated_at = excluded.updated_at;
+            """;
+        cmd.Parameters.AddWithValue("$id", botId);
+        cmd.Parameters.AddWithValue("$sent", sent);
+        cmd.Parameters.AddWithValue("$failed", failed);
+        cmd.Parameters.AddWithValue("$err", lastError ?? "");
+        cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task<List<string>> GetRecentDistillSummariesAsync(string groupOpenId, int limit = 3)
     {
         List<string> result = [];
@@ -644,6 +824,25 @@ public class Database
 }
 
 /// <summary>群静态画像（Block C 内容来源）</summary>
+/// <summary>bot_send_stats 表的一行</summary>
+public class BotSendStatRow
+{
+    public string BotId { get; set; } = "";
+    public long Sent { get; set; }
+    public long Failed { get; set; }
+    public string LastError { get; set; } = "";
+}
+
+/// <summary>bot_instances 表的一行（配置以 JSON 存储，由 BotInstanceStore 反序列化）</summary>
+public class BotInstanceRow
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Platform { get; set; } = "QqOfficial";
+    public bool Enabled { get; set; } = true;
+    public string ConfigJson { get; set; } = "{}";
+}
+
 public class GroupProfile
 {
     public required string GroupOpenId { get; set; }

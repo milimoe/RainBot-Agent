@@ -3,8 +3,10 @@ using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using Microsoft.Extensions.Options;
 using RainBot.Models;
+using RainBot.Services.Bots;
 using RainBot.Services.Config;
 using RainBot.Services.Fun;
+using RainBot.Services.OneBot;
 using RainBot.Services.QQ;
 using RainBot.Services.Storage;
 using RainBot.Services.Trigger;
@@ -218,7 +220,7 @@ public static class WebUiApi
         });
 
         // ---------- 群列表（聊天页左侧栏） ----------
-        api.MapGet("/groups", async (Database db, GroupStateManager states, WebUiBridge bridge) =>
+        api.MapGet("/groups", async (Database db, GroupStateManager states, WebUiBridge bridge, BotInstanceStore store) =>
         {
             HashSet<string> all = new(await db.GetDistinctGroupsAsync(), StringComparer.Ordinal);
             foreach (GroupState state in states.AllStates())
@@ -234,8 +236,13 @@ public static class WebUiApi
                 List<StoredMessage> last = await db.GetRecentMessagesAsync(group, 1);
                 StoredMessage? preview = last.Count > 0 ? last[0] : null;
                 bool isBot = preview?.UserOpenId == WebUiBridge.BotMarker;
+                // 会话归属：群键 = {实例Id}:{群号}，私聊 = {实例Id}:p{用户号}
+                string botId = BotKeys.GetBotId(group);
                 result.Add(new GroupInfo(
                     Group: group,
+                    BotId: botId,
+                    BotName: store.Get(botId)?.Name ?? botId,
+                    IsPrivate: BotKeys.IsPrivateKey(group),
                     IsSim: group == WebUiBridge.SimGroupId,
                     SimEnabled: bridge.IsSimulationEnabled(group),
                     Muted: profile?.Muted ?? state.Muted ?? false,
@@ -451,6 +458,76 @@ public static class WebUiApi
             catch (IOException) { }
         });
 
+        // ---------- 机器人实例管理 ----------
+        api.MapGet("/bots", (BotInstanceStore store, BotConnectionRegistry registry, RuntimeConfig config, BotSendStats stats) =>
+        {
+            List<BotInstanceStatus> statuses = registry.Summarize(store.All);
+            string baseUrl = config.Config.PublicBaseUrl.TrimEnd('/');
+            return Results.Json(new
+            {
+                bots = store.All.Select(b => new
+                {
+                    b.Id,
+                    b.Name,
+                    platform = b.Platform.ToString(),
+                    b.Enabled,
+                    b.PersonaPath,
+                    qq = b.Qq,
+                    oneBot = new
+                    {
+                        b.OneBot.SelfQq,
+                        http = b.OneBot.Http,
+                        wsForward = b.OneBot.WsForward,
+                        wsReverse = b.OneBot.WsReverse
+                    },
+                    // OneBot 接入地址（可直接复制到 go-cqhttp / NapCat 配置）
+                    endpoints = b.Platform == BotPlatform.OneBot11
+                        ? new
+                        {
+                            httpReport = baseUrl.Length > 0 ? baseUrl + OneBotRoutes.Report(b.Id) : OneBotRoutes.Report(b.Id),
+                            reverseWs = (baseUrl.Length > 0
+                                ? baseUrl.Replace("http", "ws", StringComparison.OrdinalIgnoreCase)
+                                : "") + OneBotRoutes.ReverseWs(b.Id)
+                        }
+                        : null
+                }),
+                status = statuses,
+                sendStats = stats.Snapshot().Select(s => new
+                {
+                    botId = s.BotId,
+                    sent = s.Sent,
+                    failed = s.Failed,
+                    lastError = s.LastError
+                })
+            });
+        });
+
+        api.MapPost("/bots", async (BotInstanceStore store, HttpRequest request) =>
+        {
+            JsonNode? body = await ReadBodyAsync(request);
+            if (body is not JsonObject obj)
+            {
+                return Results.Json(new { error = "请求体格式错误" }, statusCode: 400);
+            }
+            BotInstance instance = ParseBotInstance(obj);
+            string? error = await store.UpsertAsync(instance);
+            return error != null ? Results.Json(new { error }, statusCode: 400) : Results.Json(new { ok = true, id = instance.Id });
+        });
+
+        api.MapDelete("/bots/{id}", async (string id, BotInstanceStore store) =>
+        {
+            string? error = await store.DeleteAsync(id);
+            return error != null ? Results.Json(new { error }, statusCode: 404) : Results.Json(new { ok = true });
+        });
+
+        api.MapPost("/bots/{id}/enabled", async (string id, BotInstanceStore store, HttpRequest request) =>
+        {
+            JsonNode? body = await ReadBodyAsync(request);
+            bool enabled = body?["enabled"]?.GetValue<bool>() ?? true;
+            string? error = await store.SetEnabledAsync(id, enabled);
+            return error != null ? Results.Json(new { error }, statusCode: 400) : Results.Json(new { ok = true, enabled });
+        });
+
         // ---------- 入口跳转 ----------
         // 注意：不要映射 "/webui" 路由（路由匹配忽略尾斜杠，会与静态文件形成重定向环）。
         // /webui → /webui/ 由 StaticFileMiddleware 自动处理，/webui/ 由 UseDefaultFiles 提供 index.html。
@@ -459,6 +536,69 @@ public static class WebUiApi
     }
 
     // ---------- 辅助 ----------
+
+    /// <summary>把 WebUI 提交的 JSON 解析为机器人实例（缺字段用默认值，避免前端漏传报错）</summary>
+    private static BotInstance ParseBotInstance(JsonObject obj)
+    {
+        BotInstance instance = new()
+        {
+            Id = obj["id"]?.GetValue<string>()?.Trim() ?? "",
+            Name = obj["name"]?.GetValue<string>()?.Trim() ?? "",
+            Platform = string.Equals(obj["platform"]?.GetValue<string>(), "OneBot11", StringComparison.OrdinalIgnoreCase)
+                ? BotPlatform.OneBot11
+                : BotPlatform.QqOfficial,
+            Enabled = obj["enabled"]?.GetValue<bool>() ?? true,
+            PersonaPath = obj["personaPath"]?.GetValue<string>() ?? ""
+        };
+
+        if (obj["qq"] is JsonObject qq)
+        {
+            instance.Qq = new QqOfficialConfig
+            {
+                AppId = qq["appId"]?.GetValue<string>() ?? "",
+                Secret = qq["secret"]?.GetValue<string>() ?? "",
+                UseSandbox = qq["useSandbox"]?.GetValue<bool>() ?? false,
+                SelfOpenId = qq["selfOpenId"]?.GetValue<string>() ?? ""
+            };
+        }
+
+        if (obj["oneBot"] is JsonObject ob)
+        {
+            instance.OneBot = new OneBotConfig
+            {
+                SelfQq = ob["selfQq"]?.GetValue<string>() ?? ""
+            };
+            if (ob["http"] is JsonObject http)
+            {
+                instance.OneBot.Http = new OneBotHttpConfig
+                {
+                    Enabled = http["enabled"]?.GetValue<bool>() ?? false,
+                    ApiUrl = http["apiUrl"]?.GetValue<string>() ?? "",
+                    Token = http["token"]?.GetValue<string>() ?? "",
+                    ReportPath = http["reportPath"]?.GetValue<string>() ?? OneBotRoutes.DefaultReportPath
+                };
+            }
+            if (ob["wsForward"] is JsonObject wsf)
+            {
+                instance.OneBot.WsForward = new OneBotWsConfig
+                {
+                    Enabled = wsf["enabled"]?.GetValue<bool>() ?? false,
+                    Url = wsf["url"]?.GetValue<string>() ?? "",
+                    Token = wsf["token"]?.GetValue<string>() ?? ""
+                };
+            }
+            if (ob["wsReverse"] is JsonObject wsr)
+            {
+                instance.OneBot.WsReverse = new OneBotWsConfig
+                {
+                    Enabled = wsr["enabled"]?.GetValue<bool>() ?? false,
+                    Token = wsr["token"]?.GetValue<string>() ?? "",
+                    Path = wsr["path"]?.GetValue<string>() ?? OneBotRoutes.DefaultReverseWsPath
+                };
+            }
+        }
+        return instance;
+    }
 
     private static async Task WriteEventAsync(HttpResponse response, WebUiEvent ev, CancellationToken ct)
     {
@@ -499,6 +639,9 @@ public static class WebUiApi
     /// <summary>群列表条目（聊天页左侧栏）</summary>
     private sealed record GroupInfo(
         string Group,
+        string BotId,
+        string BotName,
+        bool IsPrivate,
         bool IsSim,
         bool SimEnabled,
         bool Muted,

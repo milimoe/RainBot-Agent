@@ -15,6 +15,9 @@ public enum TriggerType
 /// </summary>
 public class IncomingMessage
 {
+    /// <summary>来源机器人实例 Id（决定数据命名空间与发送回程）</summary>
+    public string BotId { get; init; } = "";
+
     /// <summary>消息 ID（用于去重）</summary>
     public required string MsgId { get; init; }
 
@@ -46,6 +49,12 @@ public class IncomingMessage
     public bool IsFullMessage { get; init; }
 
     /// <summary>
+    /// 是否私聊（C2C）。私聊时 GroupOpenId 存的是会话键 {实例Id}:p{用户号}；
+    /// 私聊消息一律视为对机器人发言（IsAtRobot=true），且不参与随机互动与暖群调度。
+    /// </summary>
+    public bool IsPrivate { get; init; }
+
+    /// <summary>
     /// 是否跳过统计/历史入库/随机互动等副作用。
     /// 开启「接收所有消息」后，@ 消息会同时推送 GROUP_AT_MESSAGE_CREATE 与 GROUP_MESSAGE_CREATE
     /// （同 msg_id）。当全量事件先到、@ 事件后到时，全量事件已完成统计/历史/随机互动，
@@ -59,8 +68,14 @@ public class IncomingMessage
 /// </summary>
 public class TriggerContext
 {
-    /// <summary>群 OpenID</summary>
+    /// <summary>触发该工作流的机器人实例 Id（决定回复回程）</summary>
+    public string BotId { get; init; } = "";
+
+    /// <summary>群键（内部格式 {实例Id}:{原始群号}；私聊为 {实例Id}:p{用户号}）</summary>
     public required string GroupOpenId { get; init; }
+
+    /// <summary>是否私聊会话（决定回复走私聊发送接口）</summary>
+    public bool IsPrivate { get; init; }
 
     /// <summary>触发类型</summary>
     public required TriggerType Type { get; init; }

@@ -8,9 +8,34 @@ export function shortId(id) {
   return id.length > 10 ? `${id.slice(0, 6)}…` : id;
 }
 
-/** 群显示名：试聊群显示「试聊群」，其余显示短 ID */
+/** 会话键 → 对端原始 ID：去掉 {实例Id}: 前缀与私聊的 p 标记 */
+export function peerIdOf(group) {
+  if (!group) return '';
+  const i = group.indexOf(':');
+  const raw = i >= 0 ? group.slice(i + 1) : group;
+  return raw.startsWith('p') ? raw.slice(1) : raw;
+}
+
+/** 会话键 → 实例 Id（无前缀返回空） */
+export function botIdOf(group) {
+  if (!group) return '';
+  const i = group.indexOf(':');
+  return i > 0 ? group.slice(0, i) : '';
+}
+
+/** 会话键是否为私聊（{实例Id}:p{用户号}） */
+export function isPrivateKey(group) {
+  const i = group.indexOf(':');
+  return i >= 0 && group[i + 1] === 'p';
+}
+
+/** 会话显示名：试聊群 / 群 {短ID} / 私聊 {短ID} */
 export function groupName(group) {
-  return group === SIM_GROUP ? 'WebUI 试聊群' : shortId(group);
+  if (group === SIM_GROUP) return 'WebUI 试聊群';
+  const i = group.indexOf(':');
+  const raw = i >= 0 ? group.slice(i + 1) : group;
+  if (raw.startsWith('p')) return `私聊 ${shortId(raw.slice(1))}`;
+  return `群 ${shortId(raw)}`;
 }
 
 const AVATAR_COLORS = [

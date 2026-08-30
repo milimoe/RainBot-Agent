@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using RainBot.Models;
+using RainBot.Services.Bots;
 using RainBot.Services.Config;
 
 namespace RainBot.Services.QQ;
@@ -26,17 +27,19 @@ public class MessageDispatcher
     private readonly MessageQueue _queue;
     private readonly RuntimeConfig _config;
     private readonly BotIdentityResolver _botIdentity;
+    private readonly BotInstanceStore _store;
     private readonly ILogger<MessageDispatcher> _logger;
     private readonly ConcurrentDedupe _dedupeAt;   // @ 事件同类重复推送
     private readonly ConcurrentDedupe _dedupeFull; // 全量事件同类重复推送
     private readonly ConcurrentDedupe _atSeen;     // 已按 @ 处理过的 msg_id（全量事件随后到达时跳过）
     private readonly ConcurrentDedupe _fullSeen;   // 已按全量入队过的 msg_id（@ 事件随后到达时跳过副作用）
 
-    public MessageDispatcher(MessageQueue queue, RuntimeConfig config, BotIdentityResolver botIdentity, ILogger<MessageDispatcher> logger)
+    public MessageDispatcher(MessageQueue queue, RuntimeConfig config, BotIdentityResolver botIdentity, BotInstanceStore store, ILogger<MessageDispatcher> logger)
     {
         _queue = queue;
         _config = config;
         _botIdentity = botIdentity;
+        _store = store;
         _logger = logger;
         TimeSpan window = TimeSpan.FromSeconds(config.Config.Safety.DedupeWindowSeconds);
         _dedupeAt = new ConcurrentDedupe(window);
@@ -45,22 +48,22 @@ public class MessageDispatcher
         _fullSeen = new ConcurrentDedupe(window);
     }
 
-    /// <summary>处理网关分发事件（READY/RESUMED/消息等）</summary>
-    public async Task HandleDispatchAsync(string eventType, JsonElement data)
+    /// <summary>处理网关分发事件（READY/RESUMED/消息等）。botId 为该连接所属机器人实例。</summary>
+    public async Task HandleDispatchAsync(string botId, string eventType, JsonElement data)
     {
         // 调试：打印每个网关事件（截断长数据，便于排查接收问题）
         if (_logger.IsEnabled(LogLevel.Debug))
         {
             string raw = data.GetRawText();
-            _logger.LogDebug("网关事件：{EventType}，data={Data}", eventType, raw.Length <= 800 ? raw : raw[..800] + "…");
+            _logger.LogDebug("[{BotId}] 网关事件：{EventType}，data={Data}", botId, eventType, raw.Length <= 800 ? raw : raw[..800] + "…");
         }
         switch (eventType)
         {
             case "GROUP_AT_MESSAGE_CREATE":
-                await HandleGroupAtAsync(data);
+                await HandleGroupAtAsync(botId, data);
                 break;
             case "GROUP_MESSAGE_CREATE":
-                await HandleGroupFullAsync(data);
+                await HandleGroupFullAsync(botId, data);
                 break;
             case "C2C_MESSAGE_CREATE":
                 // MVP 聚焦群聊，私聊仅记录
@@ -72,7 +75,7 @@ public class MessageDispatcher
         }
     }
 
-    private async Task HandleGroupAtAsync(JsonElement data)
+    private async Task HandleGroupAtAsync(string botId, JsonElement data)
     {
         GroupAtMessage? group = JsonSerializer.Deserialize<GroupAtMessage>(data.GetRawText());
         if (group == null || string.IsNullOrEmpty(group.GroupOpenId))
@@ -101,12 +104,18 @@ public class MessageDispatcher
 
         // @ 事件中的 <@!xxx> 标签即机器人自身 openid，自动学习供全量消息判定使用
         await _botIdentity.ResolveFromAtContentAsync(group.Content);
+        string? botOpenId = await _botIdentity.GetBotOpenIdAsync();
+        if (!string.IsNullOrEmpty(botOpenId))
+        {
+            await _store.LearnSelfIdentityAsync(botId, botOpenId);
+        }
 
         string senderOpenId = ResolveSenderOpenId(group.Author);
         await _queue.EnqueueAsync(new IncomingMessage
         {
+            BotId = botId,
             MsgId = group.Id,
-            GroupOpenId = group.GroupOpenId,
+            GroupOpenId = BotKeys.Group(botId, group.GroupOpenId),
             SenderOpenId = senderOpenId,
             Username = group.Author.Username,
             Content = group.Content,
@@ -117,7 +126,7 @@ public class MessageDispatcher
         });
     }
 
-    private async Task HandleGroupFullAsync(JsonElement data)
+    private async Task HandleGroupFullAsync(string botId, JsonElement data)
     {
         GroupMessage? group = JsonSerializer.Deserialize<GroupMessage>(data.GetRawText());
         if (group == null || string.IsNullOrEmpty(group.GroupOpenId))
@@ -149,9 +158,10 @@ public class MessageDispatcher
 
         await _queue.EnqueueAsync(new IncomingMessage
         {
+            BotId = botId,
             MsgId = group.Id,
             MsgSeq = group.MsgSeq,
-            GroupOpenId = group.GroupOpenId,
+            GroupOpenId = BotKeys.Group(botId, group.GroupOpenId),
             SenderOpenId = senderOpenId,
             Username = group.Author.Username,
             Content = group.Content,

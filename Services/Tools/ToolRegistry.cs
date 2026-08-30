@@ -58,6 +58,21 @@ public class ToolRegistry
             Parameters());
     }
 
+    /// <summary>
+    /// 注册外部工具（如 MCP 工具），追加在 builtin 之后。
+    /// 调用方需保证调用顺序确定（如按 server/tool 名排序），以维持 Block B 前缀稳定。
+    /// </summary>
+    public void RegisterExternal(string name, string description, JsonObject parameters)
+    {
+        _tools.Add(new RegisteredTool
+        {
+            Name = name,
+            Description = description,
+            Parameters = parameters
+        });
+        _schemaJson = null; // 失效缓存
+    }
+
     private void Register(string name, string description, JsonObject parameters)
     {
         _tools.Add(new RegisteredTool

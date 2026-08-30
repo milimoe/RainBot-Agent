@@ -17,6 +17,7 @@ public class DispatcherDedupeTests
     private const string MsgId = "msg_dual_001";
     private const string Group = "group_dual";
     private const string Sender = "member_abcdef";
+    private const string BotId = "qq"; // 分发层测试使用的实例 Id（决定群键前缀）
 
     private static string FullPayload(string id = MsgId) =>
         $$"""{"id":"{{id}}","author":{"member_openid":"{{Sender}}","username":"张三"},"content":"/admin list","group_openid":"{{Group}}","timestamp":"2026-01-01T00:00:00+00:00","msg_seq":1}""";
@@ -33,6 +34,7 @@ public class DispatcherDedupeTests
             queue,
             sp.GetRequiredService<Services.Config.RuntimeConfig>(),
             sp.GetRequiredService<BotIdentityResolver>(),
+            sp.GetRequiredService<Services.Bots.BotInstanceStore>(),
             loggerFactory.CreateLogger<MessageDispatcher>());
         return (dispatcher, queue);
     }
@@ -45,8 +47,8 @@ public class DispatcherDedupeTests
     {
         (MessageDispatcher dispatcher, MessageQueue queue) = await BuildAsync();
 
-        await dispatcher.HandleDispatchAsync("GROUP_MESSAGE_CREATE", Parse(FullPayload()));
-        await dispatcher.HandleDispatchAsync("GROUP_AT_MESSAGE_CREATE", Parse(AtPayload()));
+        await dispatcher.HandleDispatchAsync(BotId, "GROUP_MESSAGE_CREATE", Parse(FullPayload()));
+        await dispatcher.HandleDispatchAsync(BotId, "GROUP_AT_MESSAGE_CREATE", Parse(AtPayload()));
 
         List<IncomingMessage> messages = queue.DrainForTest();
         Assert.Equal(2, messages.Count);
@@ -67,8 +69,8 @@ public class DispatcherDedupeTests
     {
         (MessageDispatcher dispatcher, MessageQueue queue) = await BuildAsync();
 
-        await dispatcher.HandleDispatchAsync("GROUP_AT_MESSAGE_CREATE", Parse(AtPayload()));
-        await dispatcher.HandleDispatchAsync("GROUP_MESSAGE_CREATE", Parse(FullPayload()));
+        await dispatcher.HandleDispatchAsync(BotId, "GROUP_AT_MESSAGE_CREATE", Parse(AtPayload()));
+        await dispatcher.HandleDispatchAsync(BotId, "GROUP_MESSAGE_CREATE", Parse(FullPayload()));
 
         List<IncomingMessage> messages = queue.DrainForTest();
         IncomingMessage at = Assert.Single(messages);
@@ -81,10 +83,10 @@ public class DispatcherDedupeTests
     {
         (MessageDispatcher dispatcher, MessageQueue queue) = await BuildAsync();
 
-        await dispatcher.HandleDispatchAsync("GROUP_AT_MESSAGE_CREATE", Parse(AtPayload()));
-        await dispatcher.HandleDispatchAsync("GROUP_AT_MESSAGE_CREATE", Parse(AtPayload()));
-        await dispatcher.HandleDispatchAsync("GROUP_MESSAGE_CREATE", Parse(FullPayload()));
-        await dispatcher.HandleDispatchAsync("GROUP_MESSAGE_CREATE", Parse(FullPayload()));
+        await dispatcher.HandleDispatchAsync(BotId, "GROUP_AT_MESSAGE_CREATE", Parse(AtPayload()));
+        await dispatcher.HandleDispatchAsync(BotId, "GROUP_AT_MESSAGE_CREATE", Parse(AtPayload()));
+        await dispatcher.HandleDispatchAsync(BotId, "GROUP_MESSAGE_CREATE", Parse(FullPayload()));
+        await dispatcher.HandleDispatchAsync(BotId, "GROUP_MESSAGE_CREATE", Parse(FullPayload()));
 
         List<IncomingMessage> messages = queue.DrainForTest();
         IncomingMessage at = Assert.Single(messages);
@@ -96,9 +98,9 @@ public class DispatcherDedupeTests
     {
         (MessageDispatcher dispatcher, MessageQueue queue) = await BuildAsync();
 
-        await dispatcher.HandleDispatchAsync("GROUP_MESSAGE_CREATE", Parse(FullPayload("msg_a")));
-        await dispatcher.HandleDispatchAsync("GROUP_MESSAGE_CREATE", Parse(FullPayload("msg_b")));
-        await dispatcher.HandleDispatchAsync("GROUP_AT_MESSAGE_CREATE", Parse(AtPayload("msg_c")));
+        await dispatcher.HandleDispatchAsync(BotId, "GROUP_MESSAGE_CREATE", Parse(FullPayload("msg_a")));
+        await dispatcher.HandleDispatchAsync(BotId, "GROUP_MESSAGE_CREATE", Parse(FullPayload("msg_b")));
+        await dispatcher.HandleDispatchAsync(BotId, "GROUP_AT_MESSAGE_CREATE", Parse(AtPayload("msg_c")));
 
         List<IncomingMessage> messages = queue.DrainForTest();
         Assert.Equal(3, messages.Count);
@@ -121,7 +123,7 @@ public class DispatcherDedupeTests
              "mentions":[{"bot":true,"is_you":true,"id":"044E0000000000000000000000000000",
                           "member_openid":"044E0000000000000000000000000000","member_role":"member","username":"雨"}]}
             """;
-        await dispatcher.HandleDispatchAsync("GROUP_MESSAGE_CREATE", Parse(payload));
+        await dispatcher.HandleDispatchAsync(BotId, "GROUP_MESSAGE_CREATE", Parse(payload));
 
         IncomingMessage message = Assert.Single(queue.DrainForTest());
         Assert.True(message.IsAtRobot);

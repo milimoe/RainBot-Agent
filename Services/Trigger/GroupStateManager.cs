@@ -28,6 +28,7 @@ public class GroupStateManager
         GroupState state = GetOrCreate(message.GroupOpenId);
         DateTimeOffset now = message.ReceivedAt;
         state.LastMessageUtc = now;
+        state.IsPrivate = message.IsPrivate;
         state.DensityWindow.Add(now);
         state.TotalMessages++;
         if (message.IsAdmin)
@@ -132,4 +133,7 @@ public class GroupState
 
     /// <summary>上次上下文重置时间（降级恢复用）</summary>
     public DateTimeOffset LastResetUtc { get; set; } = DateTimeOffset.MinValue;
+
+    /// <summary>是否私聊会话（私聊不参与暖群调度）</summary>
+    public bool IsPrivate { get; set; }
 }
