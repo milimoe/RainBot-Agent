@@ -94,7 +94,7 @@ public class C2CPrivateMessageTests
         RecordingHandler handler = new();
         QqOfficialSender sender = await BuildSenderAsync(handler);
 
-        bool ok = await sender.SendAsync(new BotSendRequest
+        SendResult sendResult = await sender.SendAsync(new BotSendRequest
         {
             BotId = BotId,
             RawGroupId = "user_abc",
@@ -104,7 +104,7 @@ public class C2CPrivateMessageTests
             IsPrivate = true
         });
 
-        Assert.True(ok);
+        Assert.True(sendResult.Success);
         (string url, string body) = Assert.Single(handler.Requests, r => !r.Url.Contains("getAppAccessToken"));
         Assert.StartsWith("https://api.sgroup.qq.com/v2/users/user_abc/messages", url);
         using JsonDocument doc = JsonDocument.Parse(body);
@@ -120,7 +120,7 @@ public class C2CPrivateMessageTests
         RecordingHandler handler = new();
         QqOfficialSender sender = await BuildSenderAsync(handler);
 
-        bool ok = await sender.SendAsync(new BotSendRequest
+        SendResult sendResult = await sender.SendAsync(new BotSendRequest
         {
             BotId = BotId,
             RawGroupId = "user_abc",
@@ -129,7 +129,7 @@ public class C2CPrivateMessageTests
             IsPrivate = true
         });
 
-        Assert.True(ok);
+        Assert.True(sendResult.Success);
         (string url, string body) = Assert.Single(handler.Requests, r => !r.Url.Contains("getAppAccessToken"));
         Assert.StartsWith("https://api.sgroup.qq.com/v2/users/user_abc/messages", url);
         using JsonDocument doc = JsonDocument.Parse(body);
@@ -144,7 +144,7 @@ public class C2CPrivateMessageTests
         QqOfficialSender sender = await BuildSenderAsync(handler);
 
         // 官方 C2C 不支持发送图片：应直接发文本，不出现 /files 上传请求
-        bool ok = await sender.SendAsync(new BotSendRequest
+        SendResult sendResult = await sender.SendAsync(new BotSendRequest
         {
             BotId = BotId,
             RawGroupId = "user_abc",
@@ -153,7 +153,7 @@ public class C2CPrivateMessageTests
             IsPrivate = true
         });
 
-        Assert.True(ok);
+        Assert.True(sendResult.Success);
         Assert.All(handler.Requests, r => Assert.DoesNotContain("/files", r.Url));
         (string url, string body) = Assert.Single(handler.Requests, r => !r.Url.Contains("getAppAccessToken"));
         Assert.StartsWith("https://api.sgroup.qq.com/v2/users/user_abc/messages", url);

@@ -11,6 +11,8 @@ namespace RainBot.Services.Trigger;
 /// <summary>
 /// 发送队列：Channel + 每群滑动窗口频控（默认 15 qpm，官方 20 qpm 留余量）。
 /// 超限消息延迟重试，超过重试上限丢弃并告警，避免死循环。
+/// 平台发送失败重试：按错误类型分类（SendResult.Retryable）——频控/参数类不重试，
+/// 服务端临时故障（5xx）与网络异常做有限次指数退避重试（1.5s/3s/6s，上限 3 次）。
 /// 试聊（仿真）模式：该群消息只推送到 WebUI 并落库回看，不发送到平台。
 /// 平台无关：经 BotSenderRouter 按实例所属平台分发（QQ 官方 / OneBot11）。
 /// </summary>
@@ -28,7 +30,14 @@ public class SendQueue : BackgroundService
     /// <summary>发送消息序号（防服务器按 msg_seq 去重）</summary>
     private long _msgSeq = 0;
 
+    /// <summary>本地频控超限的最大重试次数</summary>
     private const int MaxRetryTimes = 10;
+
+    /// <summary>平台发送失败的最大重试次数（有限退避，防风暴）</summary>
+    internal const int MaxSendRetries = 3;
+
+    /// <summary>退避基数（毫秒）：1.5s → 3s → 6s</summary>
+    internal const int RetryBackoffBaseMs = 1500;
 
     public SendQueue(BotSenderRouter senderRouter, BotSendStats sendStats, RuntimeConfig config, ILogger<SendQueue> logger, BotStatus botStatus, WebUiBridge? webUi = null)
     {
@@ -39,6 +48,22 @@ public class SendQueue : BackgroundService
         _botStatus = botStatus;
         _webUi = webUi;
         _channel = Channel.CreateUnbounded<SendTask>();
+    }
+
+    /// <summary>单条发送任务的处理结果（供 ExecuteAsync 决定重试策略）</summary>
+    private enum SendOutcome
+    {
+        /// <summary>已发送（或试聊模式已推送 WebUI）</summary>
+        Sent,
+
+        /// <summary>本地 qpm 频控超限，延迟后重入队</summary>
+        RateLimited,
+
+        /// <summary>平台发送失败且可重试（临时故障），退避后重入队</summary>
+        RetryableFailure,
+
+        /// <summary>失败且不可重试（频控/参数类）或放弃</summary>
+        Failed
     }
 
     /// <summary>入队发送任务</summary>
@@ -66,20 +91,42 @@ public class SendQueue : BackgroundService
                 {
                     await Task.Delay(TimeSpan.FromSeconds(task.DelaySeconds), stoppingToken);
                 }
-                if (await TrySendAsync(task, stoppingToken))
+                SendOutcome outcome = await TrySendAsync(task, stoppingToken);
+                switch (outcome)
                 {
-                    continue;
-                }
-                // 频控超限：延迟重试
-                if (task.RetryTimes < MaxRetryTimes)
-                {
-                    task.RetryTimes++;
-                    await Task.Delay(1500, stoppingToken);
-                    await _channel.Writer.WriteAsync(task, stoppingToken);
-                }
-                else
-                {
-                    _logger.LogError("消息发送重试超限已丢弃（group={Group}）", task.GroupOpenId);
+                    case SendOutcome.Sent:
+                        continue;
+                    case SendOutcome.RateLimited:
+                        // 本地 qpm 频控：延迟重试，超过上限丢弃
+                        if (task.RetryTimes >= MaxRetryTimes)
+                        {
+                            _logger.LogError("消息发送频控重试超限已丢弃（group={Group}）", task.GroupOpenId);
+                            continue;
+                        }
+                        task.RetryTimes++;
+                        await Task.Delay(1500, stoppingToken);
+                        await _channel.Writer.WriteAsync(task, stoppingToken);
+                        break;
+                    case SendOutcome.RetryableFailure:
+                        // 平台临时故障：指数退避重试（1.5s/3s/6s），超过上限丢弃
+                        if (task.SendRetryTimes >= MaxSendRetries)
+                        {
+                            _logger.LogError("消息发送重试 {Times} 次后仍失败，已丢弃（group={Group} error={Error}）",
+                                MaxSendRetries, task.GroupOpenId, task.LastError);
+                            continue;
+                        }
+                        task.SendRetryTimes++;
+                        int backoffMs = RetryBackoffBaseMs * (1 << (task.SendRetryTimes - 1));
+                        _logger.LogWarning("发送失败将退避 {BackoffMs}ms 后重试（第 {Times}/{Max} 次，group={Group} error={Error}）",
+                            backoffMs, task.SendRetryTimes, MaxSendRetries, task.GroupOpenId, task.LastError);
+                        await Task.Delay(backoffMs, stoppingToken);
+                        await _channel.Writer.WriteAsync(task, stoppingToken);
+                        break;
+                    case SendOutcome.Failed:
+                    default:
+                        // 频控/参数类等不可重试失败：只计数，不重试
+                        _logger.LogWarning("发送失败且不可重试，已丢弃（group={Group} error={Error}）", task.GroupOpenId, task.LastError);
+                        break;
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -93,7 +140,7 @@ public class SendQueue : BackgroundService
         }
     }
 
-    private async Task<bool> TrySendAsync(SendTask task, CancellationToken ct)
+    private async Task<SendOutcome> TrySendAsync(SendTask task, CancellationToken ct)
     {
         int maxQpm = _config.Config.Safety.MaxQpmPerGroup;
         DateTimeOffset now = DateTimeOffset.UtcNow;
@@ -103,7 +150,7 @@ public class SendQueue : BackgroundService
             window.RemoveAll(t => now - t > TimeSpan.FromMinutes(1));
             if (window.Count >= maxQpm)
             {
-                return false;
+                return SendOutcome.RateLimited;
             }
             window.Add(now);
         }
@@ -119,7 +166,7 @@ public class SendQueue : BackgroundService
         if (_webUi != null && _webUi.IsSimulationEnabled(task.GroupOpenId))
         {
             await _webUi.PublishBotMessageAsync(task.GroupOpenId, task.Content);
-            return true;
+            return SendOutcome.Sent;
         }
 
         // 平台无关发送：内部会话键 {实例Id}:{群号|p用户号} → 路由器按实例平台分发
@@ -138,30 +185,29 @@ public class SendQueue : BackgroundService
             IsPrivate = isPrivate,
             MsgSeq = Interlocked.Increment(ref _msgSeq)
         };
-        bool ok;
-        string? error = null;
+        SendResult result;
         try
         {
-            ok = await _senderRouter.SendAsync(request);
-            if (!ok)
-            {
-                error = "平台返回失败";
-            }
+            result = await _senderRouter.SendAsync(request);
         }
         catch (Exception ex)
         {
-            // 兜底：任何未捕获异常都按失败统计，不让异常打断队列循环
-            ok = false;
-            error = ex.Message;
+            // 兜底：任何未捕获异常按可重试失败统计（有限次数），不让异常打断队列循环
+            result = SendResult.Fail(ex.Message, retryable: true);
             _logger.LogWarning(ex, "发送异常：实例 {BotId} → 会话 {Conversation}", botId, task.GroupOpenId);
         }
-        await _sendStats.RecordAsync(botId, ok, error);
+        task.LastError = result.Error;
+        await _sendStats.RecordAsync(botId, result.Success, result.Success ? null : result.Error);
         _botStatus.ReceivedMessages++; // 复用计数仅作统计占位，不参与限流
         if (_webUi != null)
         {
             await _webUi.PublishBotMessageAsync(task.GroupOpenId, task.Content);
         }
-        return true;
+        if (result.Success)
+        {
+            return SendOutcome.Sent;
+        }
+        return result.Retryable ? SendOutcome.RetryableFailure : SendOutcome.Failed;
     }
 }
 
@@ -195,4 +241,10 @@ public class SendTask
     public bool IsPrivate { get; init; }
 
     public int RetryTimes { get; set; }
+
+    /// <summary>平台发送失败后的已重试次数（指数退避上限 MaxSendRetries）</summary>
+    public int SendRetryTimes { get; set; }
+
+    /// <summary>最近一次发送失败的错误信息（日志与丢弃告警用）</summary>
+    public string? LastError { get; set; }
 }

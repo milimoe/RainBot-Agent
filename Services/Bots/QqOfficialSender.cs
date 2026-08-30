@@ -15,7 +15,7 @@ public class QqOfficialSender(QQBotService qqBotService, BotInstanceStore store,
 
     public BotPlatform Platform => BotPlatform.QqOfficial;
 
-    public async Task<bool> SendAsync(BotSendRequest request)
+    public async Task<SendResult> SendAsync(BotSendRequest request)
     {
         QqOfficialConfig? credentials = _store.Get(request.BotId)?.Qq;
 
@@ -48,11 +48,11 @@ public class QqOfficialSender(QQBotService qqBotService, BotInstanceStore store,
     private static string BuildContent(BotSendRequest request)
         => string.IsNullOrWhiteSpace(request.AtUserId) ? request.Content : $"<@!{request.AtUserId}> {request.Content}";
 
-    private async Task<bool> SendImageAsync(BotSendRequest request, QqOfficialConfig? credentials)
+    private async Task<SendResult> SendImageAsync(BotSendRequest request, QqOfficialConfig? credentials)
     {
         if (string.IsNullOrWhiteSpace(request.ImageUrl))
         {
-            return false;
+            return SendResult.Fail("图片地址为空", retryable: false);
         }
         UploadMediaResult upload = await _qqBotService.UploadGroupMediaAsync(request.RawGroupId, 1, request.ImageUrl, credentials);
         if (string.IsNullOrEmpty(upload.Error) && !string.IsNullOrEmpty(upload.FileInfo))

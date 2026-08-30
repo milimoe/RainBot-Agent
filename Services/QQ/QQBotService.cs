@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using RainBot.Models;
+using RainBot.Services.Bots;
 using RainBot.Services.Config;
 
 namespace RainBot.Services.QQ;
@@ -87,7 +88,7 @@ public class QQBotService(BotConfigService botConfigService, ILogger<QQBotServic
     /// <param name="content">文本内容</param>
     /// <param name="msgId">被动回复时传原消息 ID 形成回复引用</param>
     /// <param name="msgSeq">发多条消息时递增，防止服务器去重</param>
-    public Task<bool> SendGroupTextAsync(string groupOpenId, string content, string? msgId = null, long? msgSeq = null, QqOfficialConfig? credentials = null)
+    public async Task<SendResult> SendGroupTextAsync(string groupOpenId, string content, string? msgId = null, long? msgSeq = null, QqOfficialConfig? credentials = null)
     {
         Dictionary<string, object> requestBody = new()
         {
@@ -96,7 +97,8 @@ public class QQBotService(BotConfigService botConfigService, ILogger<QQBotServic
         };
         if (!string.IsNullOrEmpty(msgId)) requestBody.Add("msg_id", msgId);
         if (msgSeq.HasValue) requestBody.Add("msg_seq", msgSeq.Value);
-        return PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/groups/{groupOpenId}/messages", requestBody, credentials);
+        (var ok, var status, var err) = await PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/groups/{groupOpenId}/messages", requestBody, credentials);
+        return SendResult.FromHttp(ok, status, err);
     }
 
     /// <summary>
@@ -106,7 +108,7 @@ public class QQBotService(BotConfigService botConfigService, ILogger<QQBotServic
     /// <param name="markdownContent">Markdown 内容（QQ 支持标题/加粗/列表/块引用等子集语法）</param>
     /// <param name="msgId">被动回复时传原消息 ID 形成回复引用</param>
     /// <param name="msgSeq">发多条消息时递增，防止服务器去重</param>
-    public Task<bool> SendGroupMarkdownAsync(string groupOpenId, string markdownContent, string? msgId = null, long? msgSeq = null, QqOfficialConfig? credentials = null)
+    public async Task<SendResult> SendGroupMarkdownAsync(string groupOpenId, string markdownContent, string? msgId = null, long? msgSeq = null, QqOfficialConfig? credentials = null)
     {
         Dictionary<string, object> requestBody = new()
         {
@@ -115,7 +117,8 @@ public class QQBotService(BotConfigService botConfigService, ILogger<QQBotServic
         };
         if (!string.IsNullOrEmpty(msgId)) requestBody.Add("msg_id", msgId);
         if (msgSeq.HasValue) requestBody.Add("msg_seq", msgSeq.Value);
-        return PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/groups/{groupOpenId}/messages", requestBody, credentials);
+        (var ok, var status, var err) = await PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/groups/{groupOpenId}/messages", requestBody, credentials);
+        return SendResult.FromHttp(ok, status, err);
     }
 
     /// <summary>
@@ -125,7 +128,7 @@ public class QQBotService(BotConfigService botConfigService, ILogger<QQBotServic
     /// <param name="content">文本内容</param>
     /// <param name="msgId">被动回复时传原消息 ID 形成回复引用</param>
     /// <param name="msgSeq">发多条消息时递增，防止服务器去重</param>
-    public Task<bool> SendC2CTextAsync(string userOpenId, string content, string? msgId = null, long? msgSeq = null, QqOfficialConfig? credentials = null)
+    public async Task<SendResult> SendC2CTextAsync(string userOpenId, string content, string? msgId = null, long? msgSeq = null, QqOfficialConfig? credentials = null)
     {
         Dictionary<string, object> requestBody = new()
         {
@@ -134,13 +137,14 @@ public class QQBotService(BotConfigService botConfigService, ILogger<QQBotServic
         };
         if (!string.IsNullOrEmpty(msgId)) requestBody.Add("msg_id", msgId);
         if (msgSeq.HasValue) requestBody.Add("msg_seq", msgSeq.Value);
-        return PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/users/{userOpenId}/messages", requestBody, credentials);
+        (var ok, var status, var err) = await PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/users/{userOpenId}/messages", requestBody, credentials);
+        return SendResult.FromHttp(ok, status, err);
     }
 
     /// <summary>
     /// 发送 C2C 私聊 Markdown 消息（msg_type=2，开启 Rain.MarkdownReply 时使用）。
     /// </summary>
-    public Task<bool> SendC2CMarkdownAsync(string userOpenId, string markdownContent, string? msgId = null, long? msgSeq = null, QqOfficialConfig? credentials = null)
+    public async Task<SendResult> SendC2CMarkdownAsync(string userOpenId, string markdownContent, string? msgId = null, long? msgSeq = null, QqOfficialConfig? credentials = null)
     {
         Dictionary<string, object> requestBody = new()
         {
@@ -149,7 +153,8 @@ public class QQBotService(BotConfigService botConfigService, ILogger<QQBotServic
         };
         if (!string.IsNullOrEmpty(msgId)) requestBody.Add("msg_id", msgId);
         if (msgSeq.HasValue) requestBody.Add("msg_seq", msgSeq.Value);
-        return PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/users/{userOpenId}/messages", requestBody, credentials);
+        (var ok, var status, var err) = await PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/users/{userOpenId}/messages", requestBody, credentials);
+        return SendResult.FromHttp(ok, status, err);
     }
 
     /// <summary>上传群媒体（图片等，保留参考项目能力）</summary>
@@ -194,7 +199,7 @@ public class QQBotService(BotConfigService botConfigService, ILogger<QQBotServic
     }
 
     /// <summary>发送群图片（msg_type=7，需先上传媒体拿到 file_info）</summary>
-    public Task<bool> SendGroupImageAsync(string groupOpenId, string fileInfo, string? msgId = null, QqOfficialConfig? credentials = null)
+    public async Task<SendResult> SendGroupImageAsync(string groupOpenId, string fileInfo, string? msgId = null, QqOfficialConfig? credentials = null)
     {
         Dictionary<string, object> body = new()
         {
@@ -202,25 +207,48 @@ public class QQBotService(BotConfigService botConfigService, ILogger<QQBotServic
             { "media", new Dictionary<string, object> { ["file_info"] = fileInfo } }
         };
         if (!string.IsNullOrEmpty(msgId)) body.Add("msg_id", msgId);
-        return PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/groups/{groupOpenId}/messages", body, credentials);
+        (var ok, var status, var err) = await PostJsonAsync($"{ResolveCredentials(credentials).ApiHost}/v2/groups/{groupOpenId}/messages", body, credentials);
+        return SendResult.FromHttp(ok, status, err);
     }
 
-    private async Task<bool> PostJsonAsync(string url, Dictionary<string, object> body, QqOfficialConfig? credentials = null)
+    /// <summary>
+    /// 发送 JSON 并返回（是否成功, HTTP 状态码, 错误信息）：
+    /// 状态码供 SendResult.FromHttp 做重试分类（429/4xx 不可重试，5xx 与网络异常可重试）。
+    /// </summary>
+    private async Task<(bool Ok, int? StatusCode, string? Error)> PostJsonAsync(string url, Dictionary<string, object> body, QqOfficialConfig? credentials = null)
     {
-        string accessToken = await GetAccessTokenAsync(true, credentials);
+        string accessToken;
+        try
+        {
+            accessToken = await GetAccessTokenAsync(true, credentials);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            Logger.LogWarning(ex, "获取 Access Token 网络异常（可能临时故障）");
+            return (false, null, ex.Message);
+        }
         HttpRequestMessage request = new(HttpMethod.Post, url)
         {
             Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("QQBot", accessToken);
-        HttpResponseMessage response = await HttpClient.SendAsync(request);
+        HttpResponseMessage response;
+        try
+        {
+            response = await HttpClient.SendAsync(request);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            Logger.LogWarning(ex, "发送请求网络异常：{Url}", url);
+            return (false, null, ex.Message);
+        }
         if (!response.IsSuccessStatusCode)
         {
             string errorBody = await response.Content.ReadAsStringAsync();
             if (Logger.IsEnabled(LogLevel.Error)) Logger.LogError("发送失败，状态码：{StatusCode}，错误信息：{ErrorBody}", response.StatusCode, errorBody);
-            return false;
+            return (false, (int)response.StatusCode, errorBody);
         }
-        return true;
+        return (true, null, null);
     }
 
     private async Task AttachAuthAsync(HttpRequestMessage request, QqOfficialConfig? credentials = null)

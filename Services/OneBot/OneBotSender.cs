@@ -17,7 +17,7 @@ public class OneBotSender(OneBotManager manager, ILogger<OneBotSender> logger) :
 
     public BotPlatform Platform => BotPlatform.OneBot11;
 
-    public async Task<bool> SendAsync(BotSendRequest request)
+    public async Task<SendResult> SendAsync(BotSendRequest request)
     {
         List<object> message = BuildMessage(request);
 
@@ -49,14 +49,16 @@ public class OneBotSender(OneBotManager manager, ILogger<OneBotSender> logger) :
         if (response is null)
         {
             _logger.LogWarning("OneBot 发送失败（{BotId}）：无可用通道或无响应（{Action}）", request.BotId, action);
-            return false;
+            // 无通道/无响应多为临时状态（断线恢复、实现重启），值得退避重试
+            return SendResult.Fail("无可用通道或无响应", retryable: true);
         }
         if (!response.IsSuccess)
         {
             _logger.LogWarning("OneBot 发送失败（{BotId}）：retcode={Retcode} {Wording}", request.BotId, response.Retcode, response.Wording);
-            return false;
+            // OneBot 无标准频控码，失败默认可重试（次数有限，不会造成风暴）
+            return SendResult.Fail($"retcode={response.Retcode} {response.Wording}", retryable: true);
         }
-        return true;
+        return SendResult.Ok();
     }
 
     private static List<object> BuildMessage(BotSendRequest request)
