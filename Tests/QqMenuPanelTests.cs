@@ -228,7 +228,7 @@ public class QqMenuPanelTests
     }
 
     [Fact]
-    public async Task 官方错误透传_状态码与错误体()
+    public async Task 官方错误透传_状态码与message提取()
     {
         (QqMenuPanelService svc, _) = Build(req => Json(HttpStatusCode.BadRequest, """{"code":40030020,"message":"内容存在安全风险，请修改后重试"}"""));
 
@@ -237,7 +237,9 @@ public class QqMenuPanelTests
 
         Assert.False(r.Ok);
         Assert.Equal(400, r.StatusCode);
-        Assert.Contains("40030020", r.Error);
+        // 已从错误体提取 message，不再透传整个 JSON
+        Assert.Contains("内容存在安全风险", r.Error);
+        Assert.DoesNotContain("40030020", r.Error);
     }
 
     [Fact]

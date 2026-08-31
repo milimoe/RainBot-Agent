@@ -124,7 +124,7 @@ public class QqMenuPanelService(QQBotService qqBotService, IHttpClientFactory ht
             {
                 _logger.LogError("菜单/面板接口失败：{Method} {Url} → {StatusCode} {Body}", method, url, (int)response.StatusCode, responseBody);
             }
-            return QqApiResult<T>.Fail((int)response.StatusCode, responseBody);
+            return QqApiResult<T>.Fail((int)response.StatusCode, ExtractError(responseBody));
         }
         if (string.IsNullOrWhiteSpace(responseBody))
         {
@@ -143,5 +143,29 @@ public class QqMenuPanelService(QQBotService qqBotService, IHttpClientFactory ht
             _logger.LogError(ex, "菜单/面板接口响应解析失败：{Url}", url);
             return QqApiResult<T>.Fail(null, $"响应解析失败：{ex.Message}");
         }
+    }
+
+    /// <summary>官方错误体为 JSON（{code, message, ...}）时提取 message，非 JSON 原样返回</summary>
+    private static string ExtractError(string responseBody)
+    {
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(responseBody);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("message", out JsonElement message)
+                && message.ValueKind == JsonValueKind.String)
+            {
+                string? text = message.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    return text;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // 非 JSON 错误体（如网关 HTML），原样透传
+        }
+        return responseBody;
     }
 }
