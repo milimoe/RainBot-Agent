@@ -59,7 +59,7 @@ public class QQBotService(BotConfigService botConfigService, ILogger<QQBotServic
 
     private async Task<string> RefreshTokenAsync(BotConfig credentials)
     {
-        HttpRequestMessage request = new(HttpMethod.Post, "https://bots.qq.com/app/getAppAccessToken")
+        HttpRequestMessage request = new(HttpMethod.Post, $"{BotConfig.ApiBaseUrl}/app/getAppAccessToken")
         {
             Content = new StringContent(JsonSerializer.Serialize(new { appId = credentials.AppId, clientSecret = credentials.Secret }), Encoding.UTF8, "application/json")
         };

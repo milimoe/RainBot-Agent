@@ -34,9 +34,8 @@ public class QqMenuPanelService(QQBotService qqBotService, IHttpClientFactory ht
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    /// <summary>沙箱/正式 API Host（跟随实例 UseSandbox，与 BotConfig.ApiHost 一致）</summary>
-    private static string ApiHost(QqOfficialConfig? credentials)
-        => credentials?.UseSandbox == true ? "https://sandbox.api.sgroup.qq.com" : "https://api.sgroup.qq.com";
+    /// <summary>接口调用统一域名（官方自 2026-08-10 起统一，沙箱不再有独立域名）</summary>
+    private static string ApiHost(QqOfficialConfig? credentials) => BotConfig.ApiBaseUrl;
 
     // ---------- 全局自定义菜单 ----------
 

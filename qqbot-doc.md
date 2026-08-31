@@ -113,7 +113,7 @@ One-on-one private messages are supported without @mention.
 
 **Q: 连接失败？/ Connection failed?**
 - 确认 `app_id` 和 `app_secret` 是否正确 / Verify `app_id` and `app_secret` are correct
-- 检查网络是否能访问 `api.sgroup.qq.com` / Check network access to `api.sgroup.qq.com`
+- 检查网络是否能访问 `api.bot.qq.com` / Check network access to `api.bot.qq.com`（自 2026-08-10 起官方统一接口域名，旧 `api.sgroup.qq.com` 已停用）
 - 如果使用沙箱环境，确认 `sandbox = true` / If using sandbox, set `sandbox = true`
 
 **Q: 收不到群消息？/ Not receiving group messages?**
@@ -131,6 +131,6 @@ One-on-one private messages are supported without @mention.
 
 ## 沙箱环境 / Sandbox
 
-开发测试时可以使用沙箱环境，设置 `sandbox = true`。沙箱环境使用独立的 API 端点 (`sandbox.api.sgroup.qq.com`)，不影响生产环境。
+开发测试时可以使用沙箱环境，设置 `sandbox = true`。自 2026-08-10 起官方接口域名统一为 `api.bot.qq.com`，不再提供独立的沙箱域名（沙箱仅靠管理端配置与凭据区分），不影响生产环境。
 
-For development and testing, set `sandbox = true`. The sandbox uses a separate API endpoint (`sandbox.api.sgroup.qq.com`) and doesn't affect production.
+For development and testing, set `sandbox = true`. Since 2026-08-10 the unified API endpoint is `api.bot.qq.com`; there is no separate sandbox endpoint anymore (sandbox is distinguished by console config and credentials), and it doesn't affect production.

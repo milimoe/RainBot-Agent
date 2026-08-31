@@ -46,8 +46,8 @@ public class QqGatewayConnection(
     /// <summary>当前实例的 QQ 官方配置（实时取，WebUI 改完立即生效）</summary>
     private QqOfficialConfig Credentials => _store.Get(_botId)?.Qq ?? new QqOfficialConfig();
 
-    /// <summary>网关/API 主机（沙箱或正式，按实例配置）</summary>
-    private string GatewayHost => Credentials.UseSandbox ? "https://sandbox.api.sgroup.qq.com" : "https://api.sgroup.qq.com";
+    /// <summary>网关地址（官方统一域名 api.bot.qq.com，沙箱不再有独立域名）</summary>
+    private string GatewayHost => BotConfig.ApiBaseUrl;
 
     /// <summary>主重连循环</summary>
     public async Task RunAsync(CancellationToken stoppingToken)

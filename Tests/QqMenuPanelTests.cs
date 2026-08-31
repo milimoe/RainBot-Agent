@@ -243,8 +243,9 @@ public class QqMenuPanelTests
     }
 
     [Fact]
-    public async Task 沙箱实例_使用沙箱Host()
+    public async Task 沙箱实例_同样使用统一域名()
     {
+        // 官方自 2026-08-10 起接口调用域名统一为 api.bot.qq.com，沙箱不再有独立域名
         (QqMenuPanelService svc, List<(string Method, string Url, string Body)> requests) = Build(
             req => Json(HttpStatusCode.OK, """{"menu":null}"""));
 
@@ -252,6 +253,10 @@ public class QqMenuPanelTests
         await svc.GetMenuAsync(sandboxCreds);
 
         (_, string url, _) = requests.First(x => x.Url.Contains("/v2/menu"));
-        Assert.StartsWith("https://sandbox.api.sgroup.qq.com", url);
+        Assert.StartsWith("https://api.bot.qq.com/v2/menu", url);
+
+        // 正式实例同样统一域名
+        await svc.GetMenuAsync(Credentials);
+        Assert.All(requests.Where(x => x.Url.Contains("/v2/menu")), r => Assert.StartsWith("https://api.bot.qq.com", r.Url));
     }
 }

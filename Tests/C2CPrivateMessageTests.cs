@@ -106,7 +106,7 @@ public class C2CPrivateMessageTests
 
         Assert.True(sendResult.Success);
         (string url, string body) = Assert.Single(handler.Requests, r => !r.Url.Contains("getAppAccessToken"));
-        Assert.StartsWith("https://api.sgroup.qq.com/v2/users/user_abc/messages", url);
+        Assert.StartsWith("https://api.bot.qq.com/v2/users/user_abc/messages", url);
         using JsonDocument doc = JsonDocument.Parse(body);
         Assert.Equal(0, doc.RootElement.GetProperty("msg_type").GetInt32());
         Assert.Equal("c2c_001", doc.RootElement.GetProperty("msg_id").GetString());
@@ -131,7 +131,7 @@ public class C2CPrivateMessageTests
 
         Assert.True(sendResult.Success);
         (string url, string body) = Assert.Single(handler.Requests, r => !r.Url.Contains("getAppAccessToken"));
-        Assert.StartsWith("https://api.sgroup.qq.com/v2/users/user_abc/messages", url);
+        Assert.StartsWith("https://api.bot.qq.com/v2/users/user_abc/messages", url);
         using JsonDocument doc = JsonDocument.Parse(body);
         Assert.Equal(2, doc.RootElement.GetProperty("msg_type").GetInt32());
         Assert.Equal("**你好**", doc.RootElement.GetProperty("markdown").GetProperty("content").GetString());
@@ -156,7 +156,7 @@ public class C2CPrivateMessageTests
         Assert.True(sendResult.Success);
         Assert.All(handler.Requests, r => Assert.DoesNotContain("/files", r.Url));
         (string url, string body) = Assert.Single(handler.Requests, r => !r.Url.Contains("getAppAccessToken"));
-        Assert.StartsWith("https://api.sgroup.qq.com/v2/users/user_abc/messages", url);
+        Assert.StartsWith("https://api.bot.qq.com/v2/users/user_abc/messages", url);
         using JsonDocument doc = JsonDocument.Parse(body);
         Assert.Equal(0, doc.RootElement.GetProperty("msg_type").GetInt32());
         Assert.Equal("\r\n看图", doc.RootElement.GetProperty("content").GetString());
