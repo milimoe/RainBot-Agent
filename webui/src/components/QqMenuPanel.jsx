@@ -115,6 +115,13 @@ export function QqMenuCard({ botId }) {
     setItems((l) => l.map((it, idx) => (idx === i ? { ...it, sub_menu_items: it.sub_menu_items.filter((_, k) => k !== j) } : it)));
 
   const save = async () => {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it.name.trim()) return toast(`第 ${i + 1} 个按钮未填写名称`, 'error');
+      if (it.type === 'link' && !/^https:\/\//.test(it.link || '')) return toast(`按钮「${it.name}」的链接必须以 https:// 开头`, 'error');
+      if (it.type === 'switch' && !(it.switch?.switch_id || '').trim()) return toast(`按钮「${it.name}」未填写开关标识`, 'error');
+      if (it.type === 'menu' && (it.sub_menu_items || []).some((s) => !s.name.trim())) return toast(`按钮「${it.name}」存在未命名子菜单`, 'error');
+    }
     setBusy(true);
     try {
       await api(`/api/webui/bots/${encodeURIComponent(botId)}/menu`, { method: 'PUT', body: { menu: { items } } });
@@ -274,6 +281,7 @@ export function QqMenuCard({ botId }) {
 export function QqPanelsCard({ botId }) {
   const [scope, setScope] = useState('c2c');
   const [panels, setPanels] = useState([]);
+  const [nextCursor, setNextCursor] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState(null); // null | { mode: 'create' } | { mode: 'edit', panelId, form }
@@ -284,6 +292,7 @@ export function QqPanelsCard({ botId }) {
     try {
       const d = await api(`/api/webui/bots/${encodeURIComponent(botId)}/panels?scope=${encodeURIComponent(scope)}`);
       setPanels(d?.records || []);
+      setNextCursor(d?.next_cursor || '');
       setLoaded(true);
     } catch (e) {
       toast(e.message, 'error');
@@ -291,6 +300,22 @@ export function QqPanelsCard({ botId }) {
       setBusy(false);
     }
   }, [botId, scope]);
+
+  const loadMore = async () => {
+    if (!nextCursor || busy) return;
+    setBusy(true);
+    try {
+      const d = await api(
+        `/api/webui/bots/${encodeURIComponent(botId)}/panels?scope=${encodeURIComponent(scope)}&cursor=${encodeURIComponent(nextCursor)}`
+      );
+      setPanels((list) => [...list, ...(d?.records || [])]);
+      setNextCursor(d?.next_cursor || '');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -408,6 +433,15 @@ export function QqPanelsCard({ botId }) {
               </button>
             </div>
           ))}
+          {nextCursor && (
+            <button
+              className="w-full rounded-md border border-qq-border py-1.5 text-xs text-qq-sub hover:bg-qq-hover disabled:opacity-50"
+              onClick={loadMore}
+              disabled={busy}
+            >
+              {busy ? '加载中…' : '加载更多'}
+            </button>
+          )}
         </div>
       )}
 
@@ -541,6 +575,11 @@ function PanelEditor({ botId, editor, busy, onClose, onSaved }) {
   const removeItem = (i) => setForm((f) => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
 
   const submit = async () => {
+    for (let i = 0; i < form.items.length; i++) {
+      const it = form.items[i];
+      if (!it.name.trim()) return toast(`第 ${i + 1} 个面板元素未填写名称`, 'error');
+      if (it.type === 'link' && !/^https:\/\//.test(it.link || '')) return toast(`元素「${it.name}」的链接必须以 https:// 开头`, 'error');
+    }
     setSaving(true);
     try {
       if (isEdit) {
