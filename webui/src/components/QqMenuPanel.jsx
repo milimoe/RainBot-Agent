@@ -628,23 +628,23 @@ function PanelEditor({ botId, editor, busy, onClose, onSaved }) {
             ))}
           </select>
         </Field>
-        <Field label="作用范围" hint="channel/dm 仅支持全局">
+        <Field label="作用范围" hint={isEdit ? '编辑不可修改；关联对象请在面板列表「关联对象」入口管理' : 'channel/dm 仅支持全局'}>
           <select
             className={inputCls}
             value={specificAllowed ? form.target_type : 'all'}
-            disabled={!specificAllowed}
+            disabled={isEdit || !specificAllowed}
             onChange={(e) => patch('target_type', e.target.value)}
           >
             <option value="all">全局（all）</option>
             {specificAllowed && <option value="specific">指定用户/群（specific）</option>}
           </select>
         </Field>
-        {form.target_type === 'specific' && form.scope === 'c2c' && (
+        {!isEdit && form.target_type === 'specific' && form.scope === 'c2c' && (
           <Field label="用户 openid" hint="逗号分隔，最多 20 个" wide>
             <input className={inputCls} value={form.user_openids} onChange={(e) => patch('user_openids', e.target.value)} placeholder="openid1, openid2" />
           </Field>
         )}
-        {form.target_type === 'specific' && form.scope === 'group' && (
+        {!isEdit && form.target_type === 'specific' && form.scope === 'group' && (
           <Field label="群 openid" hint="逗号分隔，最多 20 个" wide>
             <input className={inputCls} value={form.group_openids} onChange={(e) => patch('group_openids', e.target.value)} placeholder="openid1, openid2" />
           </Field>
