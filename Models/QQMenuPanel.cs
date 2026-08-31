@@ -230,4 +230,12 @@ public class PanelRecord
     /// <summary>面板版本号</summary>
     [JsonPropertyName("version")]
     public int? Version { get; set; }
+
+    /// <summary>关联的用户 openid 列表。仅 c2c 场景且 target_type=specific 时返回，最多 1000 条</summary>
+    [JsonPropertyName("user_openids")]
+    public List<string>? UserOpenIds { get; set; }
+
+    /// <summary>关联的群 openid 列表。仅 group 场景且 target_type=specific 时返回，最多 1000 条</summary>
+    [JsonPropertyName("group_openids")]
+    public List<string>? GroupOpenIds { get; set; }
 }

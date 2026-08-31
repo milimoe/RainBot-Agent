@@ -277,6 +277,7 @@ export function QqPanelsCard({ botId }) {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState(null); // null | { mode: 'create' } | { mode: 'edit', panelId, form }
+  const [targetPanel, setTargetPanel] = useState(null); // null | { panelId, scope, users, groups }
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -328,6 +329,15 @@ export function QqPanelsCard({ botId }) {
       toast(e.message, 'error');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const openTargets = async (panelId) => {
+    try {
+      const d = await api(`/api/webui/bots/${encodeURIComponent(botId)}/panels/${encodeURIComponent(panelId)}`);
+      setTargetPanel({ panelId, scope: d?.scope || 'c2c', users: d?.user_openids || [], groups: d?.group_openids || [] });
+    } catch (e) {
+      toast(e.message, 'error');
     }
   };
 
@@ -388,6 +398,11 @@ export function QqPanelsCard({ botId }) {
               <button className="shrink-0 rounded-md border border-qq-border px-2 py-1 text-[11px] hover:bg-qq-hover" onClick={() => openEdit(p.panel_id)}>
                 编辑
               </button>
+              {p.target_type === 'specific' && (
+                <button className="shrink-0 rounded-md border border-qq-border px-2 py-1 text-[11px] hover:bg-qq-hover" onClick={() => openTargets(p.panel_id)}>
+                  关联对象
+                </button>
+              )}
               <button className="shrink-0 rounded-md border border-red-200 px-2 py-1 text-[11px] text-red-600 hover:bg-red-50" onClick={() => remove(p.panel_id)}>
                 删除
               </button>
@@ -408,7 +423,96 @@ export function QqPanelsCard({ botId }) {
           }}
         />
       )}
+
+      {targetPanel && (
+        <TargetManager
+          botId={botId}
+          target={targetPanel}
+          onClose={() => setTargetPanel(null)}
+          onChanged={(t) => setTargetPanel(t)}
+        />
+      )}
     </SectionCard>
+  );
+}
+
+/** 指令面板关联对象管理（仅 specific 面板：增删用户/群 openid） */
+function TargetManager({ botId, target, onClose, onChanged }) {
+  const isC2c = target.scope === 'c2c';
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const mutate = async (op, ids) => {
+    setBusy(true);
+    try {
+      const body = { op };
+      if (isC2c) body.user_openids = ids;
+      else body.group_openids = ids;
+      await api(`/api/webui/bots/${encodeURIComponent(botId)}/panels/${encodeURIComponent(target.panelId)}/target`, {
+        method: 'PUT',
+        body,
+      });
+      toast(op === 'add' ? '已添加关联对象' : '已移除关联对象', 'success');
+      // 重新拉取详情刷新列表
+      const d = await api(`/api/webui/bots/${encodeURIComponent(botId)}/panels/${encodeURIComponent(target.panelId)}`);
+      onChanged({ panelId: target.panelId, scope: d?.scope || target.scope, users: d?.user_openids || [], groups: d?.group_openids || [] });
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const add = () => {
+    const ids = input.split(',').map((s) => s.trim()).filter(Boolean);
+    if (ids.length === 0) return;
+    mutate('add', ids);
+    setInput('');
+  };
+
+  const list = isC2c ? target.users : target.groups;
+  const label = isC2c ? '用户 openid' : '群 openid';
+
+  return (
+    <div className="mt-3 rounded-lg border border-qq-blue/40 bg-qq-bg/40 p-3">
+      <div className="mb-2.5 flex items-center justify-between">
+        <div className="text-[13px] font-medium">
+          关联对象：{target.panelId}（{isC2c ? '单聊' : '群聊'} · 指定生效）
+        </div>
+        <button className="text-qq-sub hover:text-qq-text" onClick={onClose}>
+          <IconX size={14} />
+        </button>
+      </div>
+
+      <div className="mb-2.5 flex flex-wrap gap-1.5">
+        {list.length === 0 && <span className="text-[11px] text-qq-sub">暂无关联{label}</span>}
+        {list.map((id) => (
+          <span key={id} className="flex items-center gap-1.5 rounded-full border border-qq-border bg-white px-2.5 py-0.5 font-mono text-[11px]">
+            {id}
+            <button className="text-qq-sub hover:text-qq-red" disabled={busy} onClick={() => mutate('del', [id])}>
+              <IconX size={10} />
+            </button>
+          </span>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          className={inputCls}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && add()}
+          placeholder={`添加${label}（逗号分隔，一次最多 20 个）`}
+        />
+        <button
+          className="flex shrink-0 items-center gap-1 rounded-md bg-qq-blue px-3 py-1.5 text-xs text-white hover:bg-qq-blue-deep disabled:opacity-50"
+          onClick={add}
+          disabled={!input.trim() || busy}
+        >
+          <IconPlus size={12} /> 添加
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -192,6 +192,31 @@ public class QqMenuPanelTests
     }
 
     [Fact]
+    public async Task 查询面板详情_解析关联对象列表()
+    {
+        (QqMenuPanelService svc, List<(string Method, string Url, string Body)> requests) = Build(
+            req => Json(HttpStatusCode.OK, """
+                {"panel_id":"p_001","scope":"group","target_type":"specific",
+                 "panel":{"items":[{"type":"command","name":"群签到","desc":"每日签到"}],"remark":"群面板"},
+                 "version":1,"user_openids":[],"group_openids":["openid_group_001","openid_group_002"]}
+                """));
+
+        QqApiResult<PanelRecord> r = await svc.GetPanelAsync("p_001", Credentials);
+
+        Assert.True(r.Ok);
+        Assert.Equal("p_001", r.Data!.PanelId);
+        Assert.Equal("group", r.Data.Scope);
+        Assert.Equal("specific", r.Data.TargetType);
+        Assert.Single(r.Data.Panel!.Items!);
+        Assert.Equal(2, r.Data.GroupOpenIds!.Count);
+        Assert.Equal("openid_group_002", r.Data.GroupOpenIds[1]);
+
+        (string method, string url, _) = requests.First(x => x.Url.Contains("/v2/panels/p_001"));
+        Assert.Equal("GET", method);
+        Assert.EndsWith("/v2/panels/p_001", url);
+    }
+
+    [Fact]
     public async Task 删除面板_空响应体返回成功()
     {
         (QqMenuPanelService svc, _) = Build(req => Empty());
