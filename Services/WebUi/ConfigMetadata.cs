@@ -67,8 +67,6 @@ public static class ConfigMetadata
         new("PublicBaseUrl", "通用", "公网域名", "静态资源基址（如 https://bot.example.com），只需设置一次；OSM 梗图等自动以「域名 + wwwroot 相对路径」对外提供，留空则相关功能禁用", "text"),
         new("DebugMode", "通用", "调试模式", "开启后在每次对话输出末尾追加一行「x tokens, x tools」统计（输入+输出 token 总数、工具调用次数），排查成本与工具行为用", "bool"),
         new("MarkdownReply", "通用", "Markdown 回复", "开启后所有文本回复以 Markdown 消息（msg_type=2）发送到 QQ 网关而非纯文本；调试统计行显示为「> x tokens, x tools」块引用", "bool"),
-        new("BotName", "通用", "机器人名字", "用于识别全量消息中的 @ 触发", "text"),
-        new("Bot.OpenId", "通用", "机器人 OpenID", "群内 OpenID（不填自动学习），全量消息 @ 判定用", "text"),
         new("PersonaPath", "通用", "人设文件路径", "相对运行目录；编辑保存即热重载", "text"),
         new("SayNoPath", "通用", "SayNo 词表路径", "反驳不词表 JSON 路径；编辑保存即热重载", "text")
     ];

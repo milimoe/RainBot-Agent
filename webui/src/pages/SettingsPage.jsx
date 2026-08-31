@@ -4,17 +4,17 @@ import { Badge, toast } from '../components/ui.jsx';
 import { IconPlus, IconX, IconLock } from '../components/Icons.jsx';
 
 /**
- * 设置页：人设（热重载）/ SayNo 词表 / 管理员 / QQ 网关凭据 / OSM 梗图 / 访问安全。
+ * 设置页：人设（热重载）/ SayNo 词表 / 管理员 / OSM 梗图 / 访问安全。
+ * 机器人凭据请在「机器人」页按实例维护（多实例架构，无全局网关配置）。
  */
 export default function SettingsPage({ boot, onAuthFail }) {
   return (
     <div className="qq-scroll h-full min-w-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl space-y-5 px-6 py-6">
-        <PageTitle title="设置" desc="人设与词表保存后即时热重载；QQ 网关凭据保存后立即断线重连。" />
+        <PageTitle title="设置" desc="人设与词表保存后即时热重载；机器人凭据请到「机器人」页按实例维护。" />
         <PersonaCard onAuthFail={onAuthFail} />
         <SayNoCard onAuthFail={onAuthFail} />
         <AdminCard onAuthFail={onAuthFail} />
-        <BotGatewayCard onAuthFail={onAuthFail} />
         <OsmCard onAuthFail={onAuthFail} />
         <SecurityCard boot={boot} />
       </div>
@@ -290,100 +290,6 @@ function AdminCard({ onAuthFail }) {
         >
           <IconPlus size={12} /> 添加
         </button>
-      </div>
-    </Card>
-  );
-}
-
-// ---------- QQ 网关（AppID / Secret） ----------
-
-function BotGatewayCard({ onAuthFail }) {
-  const [data, setData] = useState({ appId: '', secret: '', overridden: false });
-  const [loaded, setLoaded] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const d = await api('/api/webui/settings/bot');
-      setData(d);
-      setLoaded(true);
-      setDirty(false);
-    } catch (e) {
-      if (e instanceof AuthError) onAuthFail?.();
-      else toast(e.message, 'error');
-    }
-  }, [onAuthFail]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await api('/api/webui/settings/bot', { method: 'PUT', body: { appId: data.appId, secret: data.secret } });
-      toast('QQ 网关凭据已保存：现有连接已断开，正在用新凭据重连…', 'success');
-      setDirty(false);
-      await load();
-    } catch (e) {
-      toast(e.message, 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const inputCls =
-    'w-full rounded-md border border-qq-border px-2.5 py-1.5 text-[13px] outline-none focus:border-qq-blue focus:ring-1 focus:ring-qq-blue/30';
-
-  return (
-    <Card
-      title="🛰️ QQ 网关（AppID / Secret）"
-      desc={loaded ? '保存后立即生效：断开现有 WebSocket 连接并用新凭据重连，Access Token 缓存同步清空' : '加载中…'}
-      right={
-        <div className="flex items-center gap-2">
-          {data.overridden && <Badge tone="orange">已覆盖 appsettings</Badge>}
-          <button
-            className="rounded-md bg-qq-blue px-3 py-1 text-xs text-white hover:bg-qq-blue-deep disabled:opacity-40"
-            onClick={save}
-            disabled={!dirty || saving}
-          >
-            {saving ? '保存中…' : '保存并重连'}
-          </button>
-        </div>
-      }
-    >
-      <div className="space-y-3">
-        <div>
-          <label className="mb-1 block text-xs text-qq-sub">AppID（QQ 开放平台）</label>
-          <input
-            value={data.appId}
-            onChange={(e) => {
-              setData((d) => ({ ...d, appId: e.target.value }));
-              setDirty(true);
-            }}
-            placeholder="1020xxxxx"
-            className={`${inputCls} font-mono`}
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-qq-sub">AppSecret</label>
-          <input
-            type="password"
-            value={data.secret}
-            onChange={(e) => {
-              setData((d) => ({ ...d, secret: e.target.value }));
-              setDirty(true);
-            }}
-            placeholder="••••••••"
-            className={`${inputCls} font-mono`}
-          />
-        </div>
-        <div className="rounded-lg bg-qq-bg p-3 text-xs leading-5 text-qq-sub">
-          说明：凭据保存到 SQLite settings 表（键 Bot.AppId / Bot.Secret），优先级高于 appsettings 与
-          <code className="mx-1 rounded bg-qq-border/60 px-1">BOT__APPID</code>/
-          <code className="mx-1 rounded bg-qq-border/60 px-1">BOT__SECRET</code>环境变量，重启后依然生效。
-        </div>
       </div>
     </Card>
   );

@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using RainBot.Models;
-using RainBot.Services.Config;
 using RainBot.Services.Storage;
 
 namespace RainBot.Services.QQ;
@@ -13,15 +12,13 @@ namespace RainBot.Services.QQ;
 /// 1. mentions 数组：@ 机器人时对应项携带 is_you=true（"是否机器人自己"）——权威信号；
 /// 2. content 中的 @ 标签：新格式为 &lt;@openid&gt;、历史格式为 &lt;@!openid&gt;（兼容两种）。
 ///
-/// openid 来源（优先级）：
-/// 1. 配置 Rain.BotOpenId（环境变量 RAIN__BOTOPENID / /admin set Bot.OpenId）
-/// 2. 自动学习：@ 事件 content 标签或 mentions 中的机器人 openid，落库 settings 表
+/// openid 来源（自动学习）：
+/// @ 事件 content 标签或 mentions 中的机器人 openid，落库 settings 表（Bot.OpenId）。
 ///
 /// openid 未知且无 mentions 信号时不判定为 @（只统计，不误判）。
 /// </summary>
-public class BotIdentityResolver(RuntimeConfig config, Database db, ILogger<BotIdentityResolver> logger)
+public class BotIdentityResolver(Database db, ILogger<BotIdentityResolver> logger)
 {
-    private readonly RuntimeConfig _config = config;
     private readonly Database _db = db;
     private readonly ILogger<BotIdentityResolver> _logger = logger;
 
@@ -32,13 +29,9 @@ public class BotIdentityResolver(RuntimeConfig config, Database db, ILogger<BotI
     private readonly Lock _lock = new();
     private string? _learnedOpenId;
 
-    /// <summary>当前有效的机器人 openid（配置优先，其次自动学习值）</summary>
+    /// <summary>当前有效的机器人 openid（自动学习值）</summary>
     public async Task<string?> GetBotOpenIdAsync()
     {
-        if (!string.IsNullOrWhiteSpace(_config.Config.BotOpenId))
-        {
-            return _config.Config.BotOpenId;
-        }
         lock (_lock)
         {
             if (_learnedOpenId != null)

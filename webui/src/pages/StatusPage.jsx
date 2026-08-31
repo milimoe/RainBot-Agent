@@ -103,7 +103,7 @@ export default function StatusPage({ onAuthFail }) {
               <span className="text-sm font-medium">{ws ? 'QQ 网关已连接' : 'QQ 网关未连接'}</span>
             </div>
             <div className="text-xs text-qq-sub">
-              机器人 <b className="text-qq-text">{status?.bot?.botName || '雨'}</b> · 模型 <b className="text-qq-text">{status?.bot?.model || '—'}</b>
+              启用实例 <b className="text-qq-text">{status?.bot?.botInstances ?? '—'}</b>/{status?.bot?.botTotal ?? '—'} 个 · 模型 <b className="text-qq-text">{status?.bot?.model || '—'}</b>
             </div>
             <div className="text-xs text-qq-sub">
               运行时长 <b className="text-qq-text">{fmtUptime(uptimeSeconds)}</b>

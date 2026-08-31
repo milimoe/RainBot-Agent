@@ -44,7 +44,7 @@ public static class WebUiApi
         });
 
         // ---------- 状态 ----------
-        api.MapGet("/status", async (BotStatus status, RuntimeConfig config, Database db, MessageQueue queue, WebUiBridge bridge, IOptions<WebUiOptions> options) =>
+        api.MapGet("/status", async (BotStatus status, RuntimeConfig config, Database db, MessageQueue queue, WebUiBridge bridge, BotInstanceStore bots, IOptions<WebUiOptions> options) =>
         {
             List<GroupWebStats> stats = await db.GetGroupStatsAsync();
             return Results.Json(new
@@ -55,8 +55,8 @@ public static class WebUiApi
                     lastConnectedAt = status.LastConnectedAt,
                     receivedMessages = status.ReceivedMessages,
                     model = config.Config.Llm.Model,
-                    botName = config.Config.BotName,
-                    botOpenId = config.Config.BotOpenId
+                    botInstances = bots.EnabledInstances.Count,
+                    botTotal = bots.All.Count
                 },
                 queuePending = queue.PendingCount,
                 sseSubscribers = bridge.SubscriberCount,
@@ -108,25 +108,9 @@ public static class WebUiApi
             });
         });
 
-        // ---------- QQ 网关凭据（修改即断开重连） ----------
-        api.MapGet("/settings/bot", async (BotConfigService botConfigService) =>
-        {
-            (string appId, string secret, bool overridden) = await botConfigService.GetCredentialsAsync();
-            return Results.Json(new { appId, secret, overridden });
-        });
-
-        api.MapPut("/settings/bot", async (BotConfigService botConfigService, HttpRequest request) =>
-        {
-            JsonNode? body = await ReadBodyAsync(request);
-            string? appId = body?["appId"]?.GetValue<string>();
-            string? secret = body?["secret"]?.GetValue<string>();
-            string? error = await botConfigService.SetCredentialsAsync(appId ?? "", secret ?? "");
-            return error == null
-                ? Results.Json(new { ok = true, reconnecting = true })
-                : Results.Json(new { error }, statusCode: 400);
-        });
-
         // ---------- OSM 梗图目录（域名 + 自动扫描，无路径配置） ----------
+        // 注：旧版单实例「QQ 网关凭据」维护（/settings/bot）已移除，
+        // 凭据请在「机器人」页按实例维护（多实例架构）。
         api.MapGet("/settings/osm", (OsmImageCatalog catalog, RuntimeConfig config) => Results.Json(new
         {
             baseUrl = catalog.BaseUrl ?? "",

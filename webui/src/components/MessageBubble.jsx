@@ -4,16 +4,15 @@ import Avatar from './Avatar.jsx';
 /**
  * 把 <@openid>（新格式）或 <@!openid>（历史格式）富文本标签渲染为蓝色 @提及。
  */
-export function renderContent(content, botOpenId) {
+export function renderContent(content) {
   const text = (content || '').replace(/^\r?\n/, '');
   const parts = text.split(/(<@!?[^>]+>)/g);
   return parts.map((part, i) => {
     const m = part.match(/^<@!?(.+)>$/);
     if (m) {
-      const isBot = botOpenId && m[1] === botOpenId;
       return (
         <span key={i} className="mention">
-          {isBot ? '@机器人' : `@${shortId(m[1])}`}
+          {`@${shortId(m[1])}`}
         </span>
       );
     }
@@ -25,7 +24,7 @@ export function renderContent(content, botOpenId) {
  * 一条聊天气泡（仿 NTQQ：对方白底描边靠左，机器人浅蓝靠右；
  * 群聊中对方气泡上方带彩色昵称 + 时间）。
  */
-export default function MessageBubble({ msg, botOpenId, names }) {
+export default function MessageBubble({ msg, names }) {
   const isBot = msg.isBot || msg.sender === BOT_SENDER;
   const name = isBot ? '雨' : names?.[msg.sender] || displayNameOf(msg);
   const timeStr = fmtFull(msg.time);
@@ -50,7 +49,7 @@ export default function MessageBubble({ msg, botOpenId, names }) {
             isBot ? 'bubble-out' : 'bubble-in'
           }`}
         >
-          {renderContent(msg.content, botOpenId)}
+          {renderContent(msg.content)}
         </div>
       </div>
     </div>

@@ -13,7 +13,7 @@ const EMOJIS = ['😀', '😂', '🤣', '😊', '😘', '🥰', '🤔', '😴', 
  * 试聊群可模拟群友发言（走真实处理链，机器人回复只显示在网页）；
  * 真实群开启「试聊拦截」后同样支持网页内试聊。
  */
-export default function ChatWindow({ group, boot, onGroupsChanged, onBack }) {
+export default function ChatWindow({ group, onGroupsChanged, onBack }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [typing, setTyping] = useState(false);
@@ -29,7 +29,6 @@ export default function ChatWindow({ group, boot, onGroupsChanged, onBack }) {
   const listRef = useRef(null);
   const stickRef = useRef(true); // 是否贴底
   const typingTimer = useRef(null);
-  const botOpenId = boot?.bot?.botOpenId;
   const isSim = group?.group === SIM_GROUP;
   const canSim = isSim || group?.simEnabled;
 
@@ -167,12 +166,12 @@ export default function ChatWindow({ group, boot, onGroupsChanged, onBack }) {
       }
       nodes.push(
         <div key={m.id || `${m.sender}-${m.time}`} className="mb-3">
-          <MessageBubble msg={m} botOpenId={botOpenId} />
+          <MessageBubble msg={m} />
         </div>
       );
     }
     return nodes;
-  }, [messages, botOpenId]);
+  }, [messages]);
 
   if (!group) {
     return <div className="flex flex-1 items-center justify-center bg-qq-panel text-sm text-qq-sub">选择一个群开始查看</div>;

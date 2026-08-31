@@ -32,9 +32,9 @@ export RAIN__LLM__APIKEY="你的DeepSeekKey"
 export RAIN__ADMINOPENIDS__0="你的OpenID"   # 第一个管理员
 ```
 
-> `BOT__APPID` / `BOT__SECRET` 也可以直接在 WebUI「设置 → QQ 网关」中维护（保存到 SQLite settings 表，修改时立即断开现有连接并用新凭据重连）。`RAIN__PUBLICBASEURL` 为公网域名，只需设置一次，OSM 梗图等静态资源自动以「域名 + wwwroot 相对路径」对外提供。
+> `BOT__APPID` / `BOT__SECRET` 仅作**旧版迁移兼容**（首次启动自动迁移为默认实例 `qq`）；新部署请直接在 WebUI「机器人」页按实例维护凭据（多实例架构，无全局网关配置）。`RAIN__PUBLICBASEURL` 为公网域名，只需设置一次，OSM 梗图等静态资源自动以「域名 + wwwroot 相对路径」对外提供。
 
-> `RAIN__BOTOPENID`（机器人群内 OpenID）：可选。开启「接收所有消息」后官方推送的 content 已去除 @ 机器人前缀，判断是否 @ 机器人需要机器人自身 openid 精确比对（兼容历史 `<@!{bot_openid}>` 标签）。**不填也能用**——机器人首次被 @ 时会自动学习并落库；也可 `/admin set Bot.OpenId` 手动设置（配置优先）。
+> 机器人自身群内 OpenID 无需配置：开启「接收所有消息」后官方推送的 content 已去除 @ 机器人前缀，机器人首次被 @ 时会从事件中**自动学习**并落库，用于精确比对是否被 @（兼容历史 `<@!{bot_openid}>` 标签）。
 
 3. 运行：
 
@@ -52,7 +52,7 @@ curl http://localhost:8080/health   # {"status":"ok"} 即连接成功
 | :--- | :--- |
 | 消息 | **仿 NTQQ 聊天窗口**：会话列表 + 头像/气泡/昵称/日期分隔线；多实例时支持按实例下拉筛选会话；SSE 实时推送群消息与机器人回复；内置「WebUI 试聊群」可模拟群友发言——消息走真实处理链（统计→风控→历史→随机互动→LLM），机器人回复只显示在网页并落库回看，不发送到 QQ；真实群在右上角「⋯」菜单开启「试聊拦截」后同样可在网页试聊 |
 | 配置 | 全部可热改参数分组编辑（LLM/触发/上下文/风控/随机互动/通用），类型化控件 + 一键保存（落库即时生效）+ 覆盖标记与恢复默认；含公网域名（静态资源基址，只需设置一次） |
-| 设置 | 人设 `persona.md` 在线编辑（保存热重载）、SayNo 词表增删（写回 sayno.json）、管理员 OpenID 维护、**QQ 网关 AppID/Secret 维护（保存即断开现有连接并用新凭据重连）**、OSM 梗图目录（域名 + 自动扫描 `wwwroot/osm/`，路径零配置） |
+| 设置 | 人设 `persona.md` 在线编辑（保存热重载）、SayNo 词表增删（写回 sayno.json）、管理员 OpenID 维护、OSM 梗图目录（域名 + 自动扫描 `wwwroot/osm/`，路径零配置）；**机器人凭据请到「机器人」页按实例维护** |
 | 状态 | QQ 网关连接状态 / 运行时长 / 队列深度 / 缓存命中率成本仪表 / **DeepSeek 账户余额（首次打开自动查询一次 + 手动刷新 + 最后刷新时间）** / **MCP 工具服务（各 server 连接状态与工具数）** / 每群统计，支持静默与重置上下文操作 |
 | 日志 | 双视图：「日志」流（与 ILogger 同源，级别过滤 / 搜索 / 暂停 / 异常展开）+「工具调用」视图（内置与 MCP 工具调用记录：名称 / 参数 / 结果 / 耗时 / 成败，内存保留最近 200 条） |
 
@@ -97,8 +97,7 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 | `Context.CacheAlertThreshold` | 0.6 | 缓存命中率告警阈值 |
 | `Safety.MaxQpmPerGroup` | 15 | 单群发送频控（官方 20 留余量，勿调大） |
 | `Llm.Model` | deepseek-v4-flash | 单一模型名 |
-| `PersonaPath` / `BotName` | Persona/persona.md / 雨 | 人设文件与机器人名 |
-| `Bot.OpenId` | 空 | 机器人群内 OpenID（全量消息 @ 判定，不填自动学习） |
+| `PersonaPath` | Persona/persona.md | 人设文件（机器人实例可覆盖，留空用全局） |
 | `Fun.EnableReplyYes` / `ReplyYesProbability` | true / 40 | 随机反驳是（消息=「是」时概率反驳「是你的头」） |
 | `Fun.EnableReplyNo` / `ReplyNoProbability` | true / 16 | 随机反驳不（词表抬杠，词表存于 `sayno.json` 可热更新） |
 | `SayNoPath` | sayno.json | 反驳不词表 JSON 路径（缺失自动生成默认，编辑保存即热重载） |
@@ -113,7 +112,7 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 
 **OSM 图片配置（域名设置一次，路径零配置）**：把梗图放入 `wwwroot/osm/`（支持子目录，如 `osm.jpg`、`osm/shide/sd1.gif`），然后在 `PublicBaseUrl` 填入公网域名（如 `http://你的域名`）。OSM 发送时会自动扫描目录并拼接 `http://你的域名/osm/xxx.jpg`；未设置域名或无图片时该功能自动禁用。所有静态资源（OSM 图片、`wwwroot/` 下的任何文件）都复用这一个域名。
 
-**QQ 网关凭据（WebUI 维护）**：`Bot.AppId` / `Bot.Secret` 除环境变量外，还可在 WebUI「设置 → QQ 网关」中修改；保存后立即断开现有连接并用新凭据重连（凭据落库 settings 表，重启依然生效）。
+**机器人凭据（多实例，WebUI「机器人」页维护）**：每个实例在「机器人」页独立维护 AppID/Secret（QQ 官方）或 OneBot 接入配置；实例凭据存 `bot_instances` 表，改动即时生效。`Bot.AppId` / `Bot.Secret` 环境变量与设置页旧「QQ 网关」卡仅作旧版迁移兼容，不再提供写入入口。
 
 **反驳不词表（sayno.json）**：首次运行自动生成默认词表文件（13 张表，字段名与原版 RainBOT 一致：`Trigger`、`TriggerBeforeNo`、`IgnoreTriggerAfterNo`、`IgnoreTriggerBeforeCan`、`TriggerAfterYes`、`WillNotSayNo`、`SayNoWords`、`SayDontHaveWords`、`SayNotYesWords`、`SayDontWords`、`SayWantWords`、`SayThinkWords`、`SaySpecialNoWords`）。直接编辑保存即热重载，也可用 `/admin sayno` 指令增删（写回 JSON）。
 
@@ -197,7 +196,7 @@ WS 网关 ──▶ 双事件去重（@/全量同 msg_id 协调，@ 语义绝不
 WarmupScheduler（30s 扫描）──▶ 密度/沉默/频控判定 ──▶ 暖群工作流（允许画像沉淀）
 ```
 
-**双事件去重（@ 判定权威）**：开启「接收所有消息」后，@ 消息会同时推送 `GROUP_AT_MESSAGE_CREATE` 与 `GROUP_MESSAGE_CREATE`（同 msg_id，官方注明相同 msg_id 可能重复推送）；部分环境下 @ 事件不再单独推送，此时以全量事件 payload 的 **`mentions` 数组（`is_you=true` 即 @ 了本机器人）** 为权威信号，content 中的 @ 标签（新格式 `<@openid>` / 历史格式 `<@!openid>`）作为兜底。分发层按事件类型分别去重，并保证 @ 语义绝不丢失：@ 事件先到则全量事件跳过；全量事件先到则 @ 事件仍补执行风控→指令→触发→工作流（跳过已完成的统计/历史，避免重复计数与重复入库）。`RAIN__BOTOPENID` 仅在标签兜底判定时使用，未配置也会自动从 mentions/@ 事件学习。
+**双事件去重（@ 判定权威）**：开启「接收所有消息」后，@ 消息会同时推送 `GROUP_AT_MESSAGE_CREATE` 与 `GROUP_MESSAGE_CREATE`（同 msg_id，官方注明相同 msg_id 可能重复推送）；部分环境下 @ 事件不再单独推送，此时以全量事件 payload 的 **`mentions` 数组（`is_you=true` 即 @ 了本机器人）** 为权威信号，content 中的 @ 标签（新格式 `<@openid>` / 历史格式 `<@!openid>`）作为兜底。分发层按事件类型分别去重，并保证 @ 语义绝不丢失：@ 事件先到则全量事件跳过；全量事件先到则 @ 事件仍补执行风控→指令→触发→工作流（跳过已完成的统计/历史，避免重复计数与重复入库）。机器人 openid 无需配置，自动从 mentions/@ 事件学习。
 
 **消息结构（缓存关键）**：`messages[0]=system(A 人设)` → `messages[1]=user(B 工具+C 群画像+D 锚点，静态)` → `messages[2]=user(E 历史，尾部增长)` → `messages[3]=user(F 当前)`。A~D 跨请求前缀不变 → DeepSeek 硬盘缓存命中（命中 ¥0.1/百万 vs 未命中 ¥1/百万）。
 

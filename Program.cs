@@ -34,7 +34,7 @@ builder.Services.Configure<WebUiOptions>(builder.Configuration.GetSection("Rain:
 // ---------- 存储与配置 ----------
 builder.Services.AddSingleton<Database>();
 builder.Services.AddSingleton<RuntimeConfig>();
-builder.Services.AddSingleton<BotConfigService>(); // QQ 网关凭据（WebUI 维护，修改即断线重连）
+builder.Services.AddSingleton<BotConfigService>(); // 旧版全局 QQ 网关凭据（仅迁移兼容，凭据按实例维护于「机器人」页）
 
 // ---------- 机器人实例与平台抽象 ----------
 builder.Services.AddSingleton<BotConnectionRegistry>();

@@ -36,8 +36,11 @@ public class RuntimeConfig
             Dictionary<string, string> overrides = await _db.GetAllSettingsAsync();
             foreach ((string key, string value) in overrides)
             {
-                // QQ 网关凭据（Bot.AppId / Bot.Secret）由 BotConfigService 负责加载，这里静默跳过
-                if (key == "Bot.AppId" || key == "Bot.Secret")
+                // 非运行时配置键静默跳过：
+                // - Bot.AppId / Bot.Secret：旧版网关凭据，由 BotConfigService 负责加载（仅供实例迁移）
+                // - Bot.OpenId：机器人身份自动学习值（BotIdentityResolver 落库），非配置项
+                // - BotName：旧版全局机器人名，已随多实例架构废弃
+                if (key is "Bot.AppId" or "Bot.Secret" or "Bot.OpenId" or "BotName")
                 {
                     continue;
                 }
@@ -214,8 +217,6 @@ public class RuntimeConfig
                 case "PublicBaseUrl": _config.PublicBaseUrl = value; return true;
                 case "DebugMode": _config.DebugMode = ParseBool(value, nameof(_config.DebugMode)); return true;
                 case "MarkdownReply": _config.MarkdownReply = ParseBool(value, nameof(_config.MarkdownReply)); return true;
-                case "BotName": _config.BotName = value; return true;
-                case "Bot.OpenId": _config.BotOpenId = value; return true;
                 default:
                     error = $"未知参数：{key}。可用 /admin list 查看全部参数。";
                     return false;
@@ -302,6 +303,6 @@ public class RuntimeConfig
         "Fun.EnableOsm", "Fun.OsmProbability",
         "Fun.EnableReverseAt", "Fun.ReverseAtProbability",
         "Fun.EnableCallBrother", "Fun.CallBrotherProbability", "Fun.CallBrotherDelaySeconds",
-        "PersonaPath", "SayNoPath", "PublicBaseUrl", "DebugMode", "MarkdownReply", "BotName", "Bot.OpenId"
+        "PersonaPath", "SayNoPath", "PublicBaseUrl", "DebugMode", "MarkdownReply"
     ];
 }

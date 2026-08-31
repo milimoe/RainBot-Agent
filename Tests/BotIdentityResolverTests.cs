@@ -6,7 +6,7 @@ using Xunit;
 namespace RainBot.Tests;
 
 /// <summary>
-/// 机器人身份识别（BOT_OPENID）：全量消息精确判断是否 @ 机器人
+/// 机器人身份识别（自动学习 openid）：全量消息精确判断是否 @ 机器人
 /// </summary>
 public class BotIdentityResolverTests
 {
@@ -55,17 +55,18 @@ public class BotIdentityResolverTests
     }
 
     [Fact]
-    public async Task 配置值优先于学习值()
+    public async Task 新学习值覆盖旧学习值()
     {
         ServiceProvider sp = await TestHost.BuildReadyAsync();
         var resolver = sp.GetRequiredService<BotIdentityResolver>();
         await resolver.ResolveFromAtContentAsync($"<@!{BotOpenId}>在吗");
 
-        // 管理员配置了明确 openid（RAIN__BOTOPENID / /admin set Bot.OpenId）
-        var config = sp.GetRequiredService<Services.Config.RuntimeConfig>();
-        await config.SetAsync("Bot.OpenId", "CONFIG_OPEN_ID_123456");
-        Assert.Equal("CONFIG_OPEN_ID_123456", await resolver.GetBotOpenIdAsync());
-        Assert.True(await resolver.IsAtBotAsync("<@!CONFIG_OPEN_ID_123456>你好"));
+        // 全局配置项已随多实例架构移除，openid 仅靠自动学习；
+        // 学到新值后旧 openid 不再判定为 @ 机器人。
+        const string newOpenId = "FFFF0000FFFF0000FFFF0000FFFF0001";
+        await resolver.ResolveFromAtContentAsync($"<@!{newOpenId}>在吗");
+        Assert.Equal(newOpenId, await resolver.GetBotOpenIdAsync());
+        Assert.True(await resolver.IsAtBotAsync($"<@!{newOpenId}>你好"));
         Assert.False(await resolver.IsAtBotAsync($"<@!{BotOpenId}>你好"));
     }
 

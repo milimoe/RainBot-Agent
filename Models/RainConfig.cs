@@ -58,16 +58,6 @@ public class RainConfig
     /// </summary>
     public bool MarkdownReply { get; set; } = false;
 
-    /// <summary>机器人名字（用于识别全量消息中的 @ 触发）</summary>
-    public string BotName { get; set; } = "雨";
-
-    /// <summary>
-    /// 机器人在群内的 OpenID（可选，用于全量消息精确判断是否 @ 机器人）。
-    /// 不填则自动学习：机器人首次被 @ 时会从事件中解析并落库。
-    /// 可填，也可用环境变量 RAIN__BOTOPENID 注入。
-    /// </summary>
-    public string BotOpenId { get; set; } = "";
-
     /// <summary>机器人自我维护的管理员 OpenID 列表（初始值来自配置，之后由 /admin 指令维护入库）</summary>
     public List<string> AdminOpenIds { get; set; } = [];
 }
