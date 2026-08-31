@@ -115,7 +115,7 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 
 **机器人凭据（多实例，WebUI「机器人」页维护）**：每个实例在「机器人」页独立维护 AppID/Secret（QQ 官方）或 OneBot 接入配置；实例凭据存 `bot_instances` 表，改动即时生效。`Bot.AppId` / `Bot.Secret` 环境变量与设置页旧「QQ 网关」卡仅作旧版迁移兼容，不再提供写入入口。
 
-**QQ 官方功能菜单与指令面板（WebUI「机器人」页在线配置）**：基于官方[菜单面板 API](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/menu-panel/)，按实例凭据直连官方接口（沙箱跟随实例设置）：
+**QQ 官方功能菜单与指令面板（WebUI「机器人」页在线配置）**：基于官方[菜单面板 API](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/menu-panel/)，按实例凭据直连官方接口（接口域名官方已统一为 `api.bot.qq.com`，沙箱不再有独立域名）：
 - **自定义菜单**：单聊窗口底部按钮，支持 `send_message`（发送消息）/ `link`（链接跳转，https://）/ `switch`（开关，用户切换后消息 ext 携带 `{switch_id}=1`）/ `menu`（子菜单，最多 5 项）；最多 10 个一级按钮，设置后对所有用户生效；
 - **指令面板**：面板形式展示指令/链接，按 `c2c`（单聊）/ `group`（群聊）/ `channel`（文字子频道）/ `dm`（频道私信）场景生效；c2c/group 可指定用户/群（`specific`）生效，最多 20 个面板、每个最多 20 个元素；支持创建/编辑/删除与关联对象管理。
 

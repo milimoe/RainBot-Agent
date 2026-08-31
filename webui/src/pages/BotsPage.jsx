@@ -424,7 +424,7 @@ export default function BotsPage() {
                       onChange={(e) => patch('qq.selfOpenId', e.target.value)}
                     />
                   </Field>
-                  <Field label="沙箱环境">
+                  <Field label="沙箱环境" hint="官方已统一接口域名（api.bot.qq.com），沙箱仅凭开放平台管理端配置生效，本开关不影响接口地址">
                     <div className="py-1">
                       <Toggle checked={form.qq.useSandbox} onChange={(v) => patch('qq.useSandbox', v)} />
                     </div>
