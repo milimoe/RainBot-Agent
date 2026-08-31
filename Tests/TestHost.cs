@@ -73,6 +73,7 @@ public static class TestHost
         services.AddSingleton<Services.OneBot.OneBotSender>();
         services.AddSingleton<Services.Bots.BotSenderRouter>();
         services.AddSingleton<Services.Bots.BotSendStats>();
+        services.AddSingleton<Services.Bots.QqMenuPanelService>();
 
         services.AddSingleton<Services.QQ.BotStatus>();
         services.AddSingleton<Services.QQ.MessageQueue>();

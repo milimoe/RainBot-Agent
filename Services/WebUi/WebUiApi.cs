@@ -531,6 +531,103 @@ public static class WebUiApi
             return error != null ? Results.Json(new { error }, statusCode: 400) : Results.Json(new { ok = true, enabled });
         });
 
+        // ---------- QQ 官方：自定义菜单 + 指令面板（按实例凭据调用官方 API） ----------
+        // 仅 QqOfficial 平台实例可用；错误透传官方响应体（含 code/message）。
+        QqOfficialConfig? QqCredentials(BotInstanceStore store, string id)
+            => store.Get(id) is { Platform: BotPlatform.QqOfficial } bot ? bot.Qq : null;
+
+        IResult QqFail(int? statusCode, string? error)
+            => Results.Json(new { error }, statusCode: statusCode ?? 502);
+
+        // 查询全局自定义菜单
+        api.MapGet("/bots/{id}/menu", async (string id, BotInstanceStore store, QqMenuPanelService svc) =>
+        {
+            QqOfficialConfig? cred = QqCredentials(store, id);
+            if (cred == null) return Results.Json(new { error = "实例不存在或非 QQ 官方平台" }, statusCode: 400);
+            QqApiResult<MenuResponse> r = await svc.GetMenuAsync(cred);
+            return r.Ok ? Results.Json(r.Data) : QqFail(r.StatusCode, r.Error);
+        });
+
+        // 修改全局自定义菜单（body: { menu: { items: [...] } }；items 为空即清空菜单）
+        api.MapPut("/bots/{id}/menu", async (string id, BotInstanceStore store, QqMenuPanelService svc, HttpRequest request) =>
+        {
+            QqOfficialConfig? cred = QqCredentials(store, id);
+            if (cred == null) return Results.Json(new { error = "实例不存在或非 QQ 官方平台" }, statusCode: 400);
+            JsonNode? body = await ReadBodyAsync(request);
+            MenuDefinition menu = new();
+            if (body?["menu"] is JsonObject menuObj)
+            {
+                menu = JsonSerializer.Deserialize<MenuDefinition>(menuObj.ToJsonString()) ?? new MenuDefinition();
+            }
+            QqApiResult<VersionResponse> r = await svc.UpdateMenuAsync(menu, cred);
+            return r.Ok ? Results.Json(r.Data) : QqFail(r.StatusCode, r.Error);
+        });
+
+        // 查询指令面板列表（?scope=c2c|group|channel|dm）
+        api.MapGet("/bots/{id}/panels", async (string id, string? scope, string? cursor, int? limit, BotInstanceStore store, QqMenuPanelService svc) =>
+        {
+            QqOfficialConfig? cred = QqCredentials(store, id);
+            if (cred == null) return Results.Json(new { error = "实例不存在或非 QQ 官方平台" }, statusCode: 400);
+            if (string.IsNullOrWhiteSpace(scope)) return Results.Json(new { error = "scope 必填（c2c/group/channel/dm）" }, statusCode: 400);
+            QqApiResult<PanelListResponse> r = await svc.ListPanelsAsync(scope, cursor, limit, cred);
+            return r.Ok ? Results.Json(r.Data) : QqFail(r.StatusCode, r.Error);
+        });
+
+        // 创建指令面板
+        api.MapPost("/bots/{id}/panels", async (string id, BotInstanceStore store, QqMenuPanelService svc, HttpRequest request) =>
+        {
+            QqOfficialConfig? cred = QqCredentials(store, id);
+            if (cred == null) return Results.Json(new { error = "实例不存在或非 QQ 官方平台" }, statusCode: 400);
+            JsonNode? body = await ReadBodyAsync(request);
+            CreatePanelRequest req = JsonSerializer.Deserialize<CreatePanelRequest>(body?.ToJsonString() ?? "{}") ?? new CreatePanelRequest();
+            QqApiResult<CreatePanelResponse> r = await svc.CreatePanelAsync(req, cred);
+            return r.Ok ? Results.Json(r.Data) : QqFail(r.StatusCode, r.Error);
+        });
+
+        // 查询指令面板详情
+        api.MapGet("/bots/{id}/panels/{panelId}", async (string id, string panelId, BotInstanceStore store, QqMenuPanelService svc) =>
+        {
+            QqOfficialConfig? cred = QqCredentials(store, id);
+            if (cred == null) return Results.Json(new { error = "实例不存在或非 QQ 官方平台" }, statusCode: 400);
+            QqApiResult<PanelRecord> r = await svc.GetPanelAsync(panelId, cred);
+            return r.Ok ? Results.Json(r.Data) : QqFail(r.StatusCode, r.Error);
+        });
+
+        // 修改指令面板内容（body: { panel: { items, remark } }）
+        api.MapPut("/bots/{id}/panels/{panelId}", async (string id, string panelId, BotInstanceStore store, QqMenuPanelService svc, HttpRequest request) =>
+        {
+            QqOfficialConfig? cred = QqCredentials(store, id);
+            if (cred == null) return Results.Json(new { error = "实例不存在或非 QQ 官方平台" }, statusCode: 400);
+            JsonNode? body = await ReadBodyAsync(request);
+            PanelDefinition panel = new();
+            if (body?["panel"] is JsonObject panelObj)
+            {
+                panel = JsonSerializer.Deserialize<PanelDefinition>(panelObj.ToJsonString()) ?? new PanelDefinition();
+            }
+            QqApiResult<VersionResponse> r = await svc.UpdatePanelAsync(panelId, panel, cred);
+            return r.Ok ? Results.Json(r.Data) : QqFail(r.StatusCode, r.Error);
+        });
+
+        // 删除指令面板
+        api.MapDelete("/bots/{id}/panels/{panelId}", async (string id, string panelId, BotInstanceStore store, QqMenuPanelService svc) =>
+        {
+            QqOfficialConfig? cred = QqCredentials(store, id);
+            if (cred == null) return Results.Json(new { error = "实例不存在或非 QQ 官方平台" }, statusCode: 400);
+            QqApiResult<bool> r = await svc.DeletePanelAsync(panelId, cred);
+            return r.Ok ? Results.Json(new { ok = true }) : QqFail(r.StatusCode, r.Error);
+        });
+
+        // 修改指令面板关联对象（body: { op, userOpenIds?, groupOpenIds? }）
+        api.MapPut("/bots/{id}/panels/{panelId}/target", async (string id, string panelId, BotInstanceStore store, QqMenuPanelService svc, HttpRequest request) =>
+        {
+            QqOfficialConfig? cred = QqCredentials(store, id);
+            if (cred == null) return Results.Json(new { error = "实例不存在或非 QQ 官方平台" }, statusCode: 400);
+            JsonNode? body = await ReadBodyAsync(request);
+            UpdatePanelTargetsRequest req = JsonSerializer.Deserialize<UpdatePanelTargetsRequest>(body?.ToJsonString() ?? "{}") ?? new UpdatePanelTargetsRequest();
+            QqApiResult<bool> r = await svc.UpdatePanelTargetsAsync(panelId, req, cred);
+            return r.Ok ? Results.Json(new { ok = true }) : QqFail(r.StatusCode, r.Error);
+        });
+
         // ---------- 入口跳转 ----------
         // 注意：不要映射 "/webui" 路由（路由匹配忽略尾斜杠，会与静态文件形成重定向环）。
         // /webui → /webui/ 由 StaticFileMiddleware 自动处理，/webui/ 由 UseDefaultFiles 提供 index.html。

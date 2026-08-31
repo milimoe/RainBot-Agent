@@ -44,6 +44,7 @@ builder.Services.AddSingleton<OneBotManager>();
 builder.Services.AddSingleton<OneBotSender>();
 builder.Services.AddSingleton<BotSenderRouter>();
 builder.Services.AddSingleton<BotSendStats>(); // 发送成功/失败统计（内存计数 + 落库）
+builder.Services.AddSingleton<QqMenuPanelService>(); // QQ 官方自定义菜单/指令面板配置（按实例凭据调用官方 API）
 
 // ---------- QQ 接入 ----------
 builder.Services.AddSingleton<BotStatus>();

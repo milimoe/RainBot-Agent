@@ -51,6 +51,7 @@ curl http://localhost:8080/health   # {"status":"ok"} 即连接成功
 | 页面 | 功能 |
 | :--- | :--- |
 | 消息 | **仿 NTQQ 聊天窗口**：会话列表 + 头像/气泡/昵称/日期分隔线；多实例时支持按实例下拉筛选会话；SSE 实时推送群消息与机器人回复；内置「WebUI 试聊群」可模拟群友发言——消息走真实处理链（统计→风控→历史→随机互动→LLM），机器人回复只显示在网页并落库回看，不发送到 QQ；真实群在右上角「⋯」菜单开启「试聊拦截」后同样可在网页试聊 |
+| 机器人 | **多实例管理**：注册/编辑/启停机器人实例（QQ 官方 AppID+Secret 或 OneBot 接入），连接状态与 OneBot 接入地址；**QQ 官方实例另支持「自定义菜单 + 指令面板」在线配置**（单聊窗口底部按钮、按场景生效的指令面板，保存即调官方 API 生效） |
 | 配置 | 全部可热改参数分组编辑（LLM/触发/上下文/风控/随机互动/通用），类型化控件 + 一键保存（落库即时生效）+ 覆盖标记与恢复默认；含公网域名（静态资源基址，只需设置一次） |
 | 设置 | 人设 `persona.md` 在线编辑（保存热重载）、SayNo 词表增删（写回 sayno.json）、管理员 OpenID 维护、OSM 梗图目录（域名 + 自动扫描 `wwwroot/osm/`，路径零配置）；**机器人凭据请到「机器人」页按实例维护** |
 | 状态 | QQ 网关连接状态 / 运行时长 / 队列深度 / 缓存命中率成本仪表 / **DeepSeek 账户余额（首次打开自动查询一次 + 手动刷新 + 最后刷新时间）** / **MCP 工具服务（各 server 连接状态与工具数）** / 每群统计，支持静默与重置上下文操作 |
@@ -113,6 +114,10 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 **OSM 图片配置（域名设置一次，路径零配置）**：把梗图放入 `wwwroot/osm/`（支持子目录，如 `osm.jpg`、`osm/shide/sd1.gif`），然后在 `PublicBaseUrl` 填入公网域名（如 `http://你的域名`）。OSM 发送时会自动扫描目录并拼接 `http://你的域名/osm/xxx.jpg`；未设置域名或无图片时该功能自动禁用。所有静态资源（OSM 图片、`wwwroot/` 下的任何文件）都复用这一个域名。
 
 **机器人凭据（多实例，WebUI「机器人」页维护）**：每个实例在「机器人」页独立维护 AppID/Secret（QQ 官方）或 OneBot 接入配置；实例凭据存 `bot_instances` 表，改动即时生效。`Bot.AppId` / `Bot.Secret` 环境变量与设置页旧「QQ 网关」卡仅作旧版迁移兼容，不再提供写入入口。
+
+**QQ 官方功能菜单与指令面板（WebUI「机器人」页在线配置）**：基于官方[菜单面板 API](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/menu-panel/)，按实例凭据直连官方接口（沙箱跟随实例设置）：
+- **自定义菜单**：单聊窗口底部按钮，支持 `send_message`（发送消息）/ `link`（链接跳转，https://）/ `switch`（开关，用户切换后消息 ext 携带 `{switch_id}=1`）/ `menu`（子菜单，最多 5 项）；最多 10 个一级按钮，设置后对所有用户生效；
+- **指令面板**：面板形式展示指令/链接，按 `c2c`（单聊）/ `group`（群聊）/ `channel`（文字子频道）/ `dm`（频道私信）场景生效；c2c/group 可指定用户/群（`specific`）生效，最多 20 个面板、每个最多 20 个元素；支持创建/编辑/删除与关联对象管理。
 
 **反驳不词表（sayno.json）**：首次运行自动生成默认词表文件（13 张表，字段名与原版 RainBOT 一致：`Trigger`、`TriggerBeforeNo`、`IgnoreTriggerAfterNo`、`IgnoreTriggerBeforeCan`、`TriggerAfterYes`、`WillNotSayNo`、`SayNoWords`、`SayDontHaveWords`、`SayNotYesWords`、`SayDontWords`、`SayWantWords`、`SayThinkWords`、`SaySpecialNoWords`）。直接编辑保存即热重载，也可用 `/admin sayno` 指令增删（写回 JSON）。
 

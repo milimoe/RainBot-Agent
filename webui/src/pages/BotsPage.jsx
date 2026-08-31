@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { Badge, Toggle, toast } from '../components/ui.jsx';
 import { IconCopy, IconPlus, IconRobot } from '../components/Icons.jsx';
+import { QqMenuCard, QqPanelsCard } from '../components/QqMenuPanel.jsx';
 
 const PLATFORMS = [
   { value: 'QqOfficial', label: 'QQ 官方机器人', hint: '开放平台 AppID + Secret；群/用户使用 openid' },
@@ -431,6 +432,10 @@ export default function BotsPage() {
                 </div>
               </div>
             )}
+
+            {/* QQ 官方：自定义菜单 + 指令面板（按实例凭据调用官方 API） */}
+            {form.id && <QqMenuCard botId={form.id} />}
+            {form.id && <QqPanelsCard botId={form.id} />}
 
             {!isNew && statsOf(form.id) ? (
               <div className="rounded-xl border border-qq-border bg-white p-4">
