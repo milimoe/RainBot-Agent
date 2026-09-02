@@ -95,4 +95,41 @@ public class WarmupSilenceTests
 
         Assert.True(sent);
     }
+
+    [Fact]
+    public async Task 暖群静默跳过_冷却期内不空转_期满可重试且不占频控()
+    {
+        // 组合路径（模拟 WarmupScheduler）：静默群触发暖群 → LLM 空输出静默跳过
+        // → 尝试时间已记录 → 冷却期内 Evaluate 不再通过（防每 30s 空转）
+        // → 16 分钟后可再次触发，且失败不占用每小时频控额度
+        ServiceProvider sp = await TestHost.BuildReadyAsync(_ => LlmResponse(""));
+        var states = sp.GetRequiredService<GroupStateManager>();
+        var active = sp.GetRequiredService<ActiveTrigger>();
+        var runner = sp.GetRequiredService<WorkflowRunner>();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        GroupState state = states.GetOrCreate(Group);
+        state.LastMessageUtc = now.AddMinutes(-31); // 已静默超过阈值
+
+        Assert.NotNull(active.Evaluate(Group, now)); // 可以触发
+        bool sent = await runner.RunAsync(new TriggerContext
+        {
+            BotId = Database.LegacyBotId,
+            GroupOpenId = Group,
+            Type = TriggerType.Warmup,
+            Reason = "群聊已静默 30 分钟"
+        }, null);
+        Assert.False(sent);
+
+        // WarmupScheduler 记录尝试时间（供冷却）
+        state.LastWarmupAttemptUtc = now;
+
+        // 冷却期内（5 分钟后）不再重复触发 → 不空转
+        Assert.Null(active.Evaluate(Group, now.AddMinutes(5)));
+
+        // 冷却期满（16 分钟后）可再次尝试
+        Assert.NotNull(active.Evaluate(Group, now.AddMinutes(16)));
+
+        // 失败静默未计入每小时频控（额度留给真正成功的暖群）
+        Assert.Empty(state.ActiveWindow);
+    }
 }
