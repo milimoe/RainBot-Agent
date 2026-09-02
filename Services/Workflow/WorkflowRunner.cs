@@ -37,7 +37,8 @@ public class WorkflowRunner(
     /// </summary>
     /// <param name="ctx">触发上下文</param>
     /// <param name="replyMsgId">被动回复时引用原消息 ID</param>
-    public async Task RunAsync(TriggerContext ctx, string? replyMsgId, CancellationToken ct = default)
+    /// <returns>是否真正入队发送了消息（暖群无内容可说时静默跳过会返回 false）</returns>
+    public async Task<bool> RunAsync(TriggerContext ctx, string? replyMsgId, CancellationToken ct = default)
     {
         await _workflowLock.WaitAsync(ct);
         try
@@ -54,7 +55,7 @@ public class WorkflowRunner(
             else if (action == WatermarkAction.DegradedSkipped)
             {
                 _logger.LogInformation("群 {Group} 处于降级期且静默未满，本次工作流跳过", ctx.GroupOpenId);
-                return;
+                return false;
             }
 
             // 3. ReAct 循环（工具调用追加尾部，不污染前缀）
@@ -66,13 +67,28 @@ public class WorkflowRunner(
                 IsAdmin = isAdmin,
                 AllowProfileUpdate = ctx.AllowProfileUpdate
             };
-            ReActResult result = await _reactLoop.RunAsync(compose.Messages, toolCtx, ct: ct);
+
+            // 暖群（主动开话题）若 LLM 无内容可说，静默跳过而不是发「想不出怎么接话题」这类被动兜底话术；
+            // 被动（@/私聊）保持默认兜底，保证有回应。
+            bool isWarmup = ctx.Type == TriggerType.Warmup;
+            ReActResult result = isWarmup
+                ? await _reactLoop.RunAsync(compose.Messages, toolCtx, fallback: "", ct: ct)
+                : await _reactLoop.RunAsync(compose.Messages, toolCtx, ct: ct);
 
             // 4. 输出风控
             string? text = _outputFilter.Filter(result.Text);
             if (text == null)
             {
-                _logger.LogInformation("群 {Group} 输出被风控拦截，不发送", ctx.GroupOpenId);
+                if (isWarmup && string.IsNullOrWhiteSpace(result.Text))
+                {
+                    // 暖群静默期无有效内容（历史空/话题已冷/LLM 失败）→ 保持安静，等冷却后重试
+                    _logger.LogInformation("群 {Group} 暖群无有效内容（failed={Failed}），静默跳过不发送", ctx.GroupOpenId, result.Failed);
+                }
+                else
+                {
+                    _logger.LogInformation("群 {Group} 输出被风控拦截，不发送", ctx.GroupOpenId);
+                }
+                return false;
             }
             else
             {
@@ -100,14 +116,17 @@ public class WorkflowRunner(
 
             // 5. 成本统计（缓存命中率监控）
             await _cacheMonitor.RecordAsync(ctx.GroupOpenId, ctx.Type.ToString(), result.Usage);
+            return true;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // 应用停止中
+            return false;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "工作流执行异常（group={Group}, type={Type}）", ctx.GroupOpenId, ctx.Type);
+            return false;
         }
         finally
         {

@@ -15,6 +15,12 @@ public class ActiveTrigger(RuntimeConfig config, GroupStateManager states, ILogg
     private readonly GroupStateManager _states = states;
     private readonly ILogger<ActiveTrigger> _logger = logger;
 
+    /// <summary>
+    /// 暖群失败重试冷却：上一次暖群尝试（无论是否真正发言）后需等待该时长才能再次尝试。
+    /// 防止 LLM 无内容可说静默跳过时，扫描器每 30s 反复触发空转烧 token。
+    /// </summary>
+    private static readonly TimeSpan WarmupRetryCooldown = TimeSpan.FromMinutes(15);
+
     /// <summary>评估该群当前是否应暖群，返回原因；不触发返回 null</summary>
     public string? Evaluate(string groupOpenId, DateTimeOffset now)
     {
@@ -30,6 +36,12 @@ public class ActiveTrigger(RuntimeConfig config, GroupStateManager states, ILogg
 
         // 被动冷却期内不与暖群冲突
         if (state.LastPassiveTriggerUtc + TimeSpan.FromSeconds(cfg.PassiveCooldownSeconds) > now)
+        {
+            return null;
+        }
+
+        // 暖群重试冷却：上次尝试（成功或静默跳过）后需等待，防止空转
+        if (state.LastWarmupAttemptUtc + WarmupRetryCooldown > now)
         {
             return null;
         }

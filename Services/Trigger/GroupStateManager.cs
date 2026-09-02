@@ -122,6 +122,12 @@ public class GroupState
     /// <summary>最近 1 小时主动发言时间戳（滑动，频控）</summary>
     public List<DateTimeOffset> ActiveWindow { get; } = [];
 
+    /// <summary>
+    /// 最近一次暖群尝试时间（无论成功/静默跳过都记录，用于失败重试冷却：
+    /// 防止"无内容可说"时每 30s 空转反复调 LLM）。
+    /// </summary>
+    public DateTimeOffset LastWarmupAttemptUtc { get; set; } = DateTimeOffset.MinValue;
+
     /// <summary>累计消息数</summary>
     public long TotalMessages { get; set; }
 

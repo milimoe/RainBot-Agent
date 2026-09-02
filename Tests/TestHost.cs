@@ -17,6 +17,7 @@ using RainBot.Services.Safety;
 using RainBot.Services.Storage;
 using RainBot.Services.Tools;
 using RainBot.Services.Trigger;
+using RainBot.Services.Workflow;
 
 namespace RainBot.Tests;
 
@@ -60,6 +61,8 @@ public static class TestHost
         services.AddSingleton<Distiller>();
         services.AddSingleton<BlockComposer>();
         services.AddSingleton<WatermarkManager>();
+        services.AddSingleton<Services.Llm.CacheMonitor>();
+        services.AddSingleton<WorkflowRunner>();
         services.AddSingleton<CommandParser>();
         services.AddMemoryCache();
         services.AddSingleton<BotConfigService>();

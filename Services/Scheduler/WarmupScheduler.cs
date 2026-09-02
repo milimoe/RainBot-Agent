@@ -98,8 +98,17 @@ public class WarmupScheduler(
             };
 
             _logger.LogInformation("群 {Group} 触发主动暖群：{Reason}", state.GroupOpenId, reason);
-            await _workflowRunner.RunAsync(ctx, null, ct);
-            _activeTrigger.MarkActive(state.GroupOpenId, now);
+            bool sent = await _workflowRunner.RunAsync(ctx, null, ct);
+            // 无论是否真正发言都记录尝试时间（ActiveTrigger 用它做失败重试冷却，防空转）
+            state.LastWarmupAttemptUtc = now;
+            if (sent)
+            {
+                _activeTrigger.MarkActive(state.GroupOpenId, now);
+            }
+            else
+            {
+                _logger.LogInformation("群 {Group} 暖群未产出内容，静默跳过（等待重试冷却后再试）", state.GroupOpenId);
+            }
         }
     }
 }

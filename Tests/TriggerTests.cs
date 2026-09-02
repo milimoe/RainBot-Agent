@@ -131,4 +131,30 @@ public class TriggerTests
         var active = sp.GetRequiredService<ActiveTrigger>();
         Assert.Null(active.Evaluate("brand_new_group", DateTimeOffset.UtcNow));
     }
+
+    [Fact]
+    public async Task 暖群尝试后冷却期内不重复触发()
+    {
+        ServiceProvider sp = await TestHost.BuildReadyAsync();
+        var states = sp.GetRequiredService<GroupStateManager>();
+        var active = sp.GetRequiredService<ActiveTrigger>();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        states.GetOrCreate(Group).LastMessageUtc = now.AddMinutes(-31);
+        // 5 分钟前刚尝试过暖群（无内容静默跳过也算尝试），15 分钟冷却期内不再空转
+        states.GetOrCreate(Group).LastWarmupAttemptUtc = now.AddMinutes(-5);
+        Assert.Null(active.Evaluate(Group, now));
+    }
+
+    [Fact]
+    public async Task 暖群尝试冷却期满后可再次触发()
+    {
+        ServiceProvider sp = await TestHost.BuildReadyAsync();
+        var states = sp.GetRequiredService<GroupStateManager>();
+        var active = sp.GetRequiredService<ActiveTrigger>();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        states.GetOrCreate(Group).LastMessageUtc = now.AddMinutes(-31);
+        // 16 分钟前尝试过，冷却（15 分钟）已过 → 允许再次暖群
+        states.GetOrCreate(Group).LastWarmupAttemptUtc = now.AddMinutes(-16);
+        Assert.NotNull(active.Evaluate(Group, now));
+    }
 }
