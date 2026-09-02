@@ -201,4 +201,34 @@ public class WatermarkTests
         bool reset = await watermark.TryRecoverDegradedAsync(Group);
         Assert.False(reset);
     }
+
+    [Fact]
+    public async Task 暖群上下文_含主动开口任务指令_被动无()
+    {
+        ServiceProvider sp = await TestHost.BuildReadyAsync();
+        var composer = sp.GetRequiredService<BlockComposer>();
+
+        // 暖群：Block F 明确告知"主动暖场、开口说话"，降低空输出概率
+        ComposeResult warmup = await composer.BuildAsync(new TriggerContext
+        {
+            GroupOpenId = Group,
+            Type = TriggerType.Warmup,
+            Reason = "群聊已静默 30 分钟",
+            WarmupHint = "最近话题：天气"
+        });
+        string warmupF = warmup.Messages[3].Content;
+        Assert.Contains("暖群提示：最近话题：天气", warmupF);
+        Assert.Contains("主动暖场", warmupF);
+        Assert.Contains("直接输出你要说的那句话", warmupF);
+
+        // 被动 @：无暖群任务指令，只有触发原因
+        ComposeResult passive = await composer.BuildAsync(new TriggerContext
+        {
+            GroupOpenId = Group,
+            Type = TriggerType.Passive,
+            Reason = "被群友 @ 互动"
+        });
+        Assert.Contains("触发原因：被群友 @ 互动", passive.Messages[3].Content);
+        Assert.DoesNotContain("主动暖场", passive.Messages[3].Content);
+    }
 }

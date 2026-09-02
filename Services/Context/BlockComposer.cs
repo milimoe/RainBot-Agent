@@ -144,6 +144,13 @@ public class BlockComposer(
         {
             sb.AppendLine($"暖群提示：{ctx.WarmupHint}");
         }
+        if (ctx.Type == TriggerType.Warmup)
+        {
+            // 暖群 = 主动破冰：明确告知 LLM 现在没人说话、需要它开口，
+            // 避免模型把"静默触发"误解为要回复某人而空转/拒绝。
+            sb.AppendLine();
+            sb.AppendLine("[任务] 现在是主动暖场时间：群里安静了一阵子，请你自然地开口说话，而不是回复某个具体的人。可以结合上面的群画像/最近话题找个轻松切入点，或聊聊天气、日常、趣事，语气保持人设。直接输出你要说的那句话即可。");
+        }
         return sb.ToString();
     }
 
