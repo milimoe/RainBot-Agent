@@ -13,9 +13,11 @@ public static class ConfigMetadata
         new("Llm.BaseUrl", "LLM", "接口地址", "DeepSeek API 地址（OpenAI 兼容）", "text"),
         new("Llm.ApiKey", "LLM", "API Key", "DeepSeek API Key（推荐用环境变量 RAIN__LLM__APIKEY 注入）", "secret"),
         new("Llm.Model", "LLM", "模型名", "本项目只使用这一个模型", "text"),
-        new("Llm.Temperature", "LLM", "采样温度", "越高越发散，越低越稳定", "double", 0, 2, 0.1),
+        new("Llm.Temperature", "LLM", "采样温度", "越高越发散，越低越稳定（对话/收口轮）", "double", 0, 2, 0.1),
+        new("Llm.ToolTemperature", "LLM", "工具轮温度", "进入工具链中段（已产生工具结果）后的采样温度，宜低于主温度以稳定工具参数", "double", 0, 2, 0.1),
         new("Llm.TimeoutSeconds", "LLM", "请求超时（秒）", "单次 LLM 请求超时", "number", 1, 600),
-        new("Llm.MaxToolRounds", "LLM", "工具最大轮次", "ReAct 工具调用最大轮次（防死循环）", "number", 1, 20),
+        new("Llm.MaxToolRounds", "LLM", "工具最大轮次", "ReAct 工具调用最大轮次（防死循环；触顶后自动补一次禁用工具的收口请求）", "number", 1, 20),
+        new("Llm.ToolRoundMaxTokens", "LLM", "工具轮输出上限", "工具轮 max_tokens，需容纳工具调用参数 JSON；过小会把多参数调用截断", "number", 64, 8192),
         new("Llm.MaxOutputLines", "LLM", "输出最大行数", "超出截断（铁律：最多 2 行）", "number", 1, 20),
         new("Llm.MaxOutputChars", "LLM", "输出最大字符", "超出截断", "number", 1, 4000),
 

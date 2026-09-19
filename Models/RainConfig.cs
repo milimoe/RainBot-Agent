@@ -70,17 +70,30 @@ public class LlmConfig
     /// <summary>API Key（推荐用环境变量 RAIN__LLM__APIKEY 注入，不写入配置文件）</summary>
     public string ApiKey { get; set; } = "";
 
-    /// <summary>模型名（本项目只使用这一个模型）</summary>
-    public string Model { get; set; } = "deepseek-v4-flash";
+    /// <summary>模型名（默认 deepseek-flash；deepseek-v4-flash 为官方已退役别名，仍可用但建议用新名）</summary>
+    public string Model { get; set; } = "deepseek-flash";
 
-    /// <summary>采样温度</summary>
+    /// <summary>采样温度（对话/收口轮：保人设语气，应高于 ToolTemperature）</summary>
     public double Temperature { get; set; } = 0.9;
+
+    /// <summary>
+    /// 工具链中段采样温度（已产生工具结果、模型需消化结果并决定是否再调用时使用）。
+    /// 低于 Temperature 以保证工具选择与参数生成稳定；首轮与收口轮仍用 Temperature。
+    /// </summary>
+    public double ToolTemperature { get; set; } = 0.2;
 
     /// <summary>单次请求超时（秒）</summary>
     public int TimeoutSeconds { get; set; } = 90;
 
-    /// <summary>ReAct 工具调用最大轮次（防死循环）</summary>
+    /// <summary>ReAct 工具调用最大轮次（防死循环；触顶后会自动补一次禁用工具的收口请求）</summary>
     public int MaxToolRounds { get; set; } = 3;
+
+    /// <summary>
+    /// 工具轮 max_tokens：需容纳「思考文本 + 工具调用参数 JSON」，
+    /// 太小会把多参数调用截断成半截 JSON（当前 7 个内置工具中 admin_set_setting/update_user_profile 有 2~5 个参数）。
+    /// 收口轮不用该值，由 MaxOutputChars 推导。
+    /// </summary>
+    public int ToolRoundMaxTokens { get; set; } = 512;
 
     /// <summary>输出强制最多行数（超出截断）</summary>
     public int MaxOutputLines { get; set; } = 2;

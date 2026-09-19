@@ -1,6 +1,6 @@
 # RainBot Agent「雨」🌧️
 
-基于 **DeepSeek API**（单一 `deepseek-v4-flash` 模型）与 **QQ 官方机器人接口**构建的 QQ 群聊机器人智能体（ReAct）。核心策略：**节流触发**（非全量监听）与**极致缓存优化**（前缀稳定 → DeepSeek 硬盘缓存命中），只为降低 API 成本。
+基于 **DeepSeek API**（单一 `deepseek-flash` 模型）与 **QQ 官方机器人接口**构建的 QQ 群聊机器人智能体（ReAct）。核心策略：**节流触发**（非全量监听）与**极致缓存优化**（前缀稳定 → DeepSeek 硬盘缓存命中），只为降低 API 成本。
 
 - 语言/框架：C# / .NET 10（ASP.NET Core）
 - QQ 接入：纯手写 WebSocket 协议（无第三方 SDK，基于 [QQBot-WebSocket](https://github.com/tencent-connect/botpy) 同源协议，官方文档 [bot.q.qq.com](https://bot.q.qq.com)）
@@ -15,7 +15,7 @@
 | 双轨触发 | 被动（@/回复，即时响应 + 每群 30s 冷却，冷却期消息仍入队统计）；主动暖群（密度唤醒 1min≥10 条 / 沉默唤醒 30min / 每小时 ≤1 次；**暖群无内容可说时静默不发**，失败 15 分钟冷却重试，不会发「想不出怎么接话题」等空话） |
 | 上下文缓存 | Block A-F 固定顺序组装，可变内容只追加尾部、头部整条丢弃；153.6k 水位三级治理（删 E → 缩 D → 蒸馏压缩 + 降级运行） |
 | 群友画像 | L0 全量画像存库不进上下文；L1 锚点 Top 5 常驻（<20 tokens）；L2 触发式召回进尾部块，下轮即弃 |
-| ReAct 工具 | `web_search`（10 分钟话题缓存）、`get_user_profile`、`update_user_profile`（仅暖群）、管理员工具；轮次上限防死循环 |
+| ReAct 工具 | `web_search`（10 分钟话题缓存）、`get_user_profile`、`update_user_profile`（仅暖群）、管理员工具；工具轮次上限防死循环，触顶自动补一次 `tool_choice=none` 收口请求（不丢弃已拿到的工具结果）；温度两档（对话/收口 0.9、工具链中段 0.2） |
 | 风控 | 输入（广告/涉政/引流不回应）、输出（openid 泄露替换、≤2 行截断）、平台频控（15 qpm 留余量）、成本监控（缓存命中率 <60% 告警） |
 | 随机互动 | 移植原版 RainBOT：随机反驳是/不、随机复读（延迟防刷屏）、随机OSM（梗图）、反向艾特、随机叫哥；纯规则概率触发不耗 Token，一次消息最多命中一个（防刷屏） |
 | 人设系统 | `Persona/persona.md` 随时改写，保存即热重载，无需重启 |
@@ -97,7 +97,9 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 | `Context.DegradeResetSilenceMinutes` | 120 | 降级后静默多久彻底重置 |
 | `Context.CacheAlertThreshold` | 0.6 | 缓存命中率告警阈值 |
 | `Safety.MaxQpmPerGroup` | 15 | 单群发送频控（官方 20 留余量，勿调大） |
-| `Llm.Model` | deepseek-v4-flash | 单一模型名 |
+| `Llm.Model` | deepseek-flash | 单一模型名（`deepseek-v4-flash` 为官方已退役别名，仍可用但建议改新名） |
+| `Llm.Temperature` / `ToolTemperature` | 0.9 / 0.2 | 主温度（对话与收口轮，保人设）；工具链中段降温（稳工具选择与参数） |
+| `Llm.ToolRoundMaxTokens` | 512 | 工具轮 `max_tokens`：需容纳工具调用参数 JSON，过小会截断多参数调用；收口轮按 `MaxOutputChars` 推导，不用该值 |
 | `PersonaPath` | Persona/persona.md | 人设文件（机器人实例可覆盖，留空用全局） |
 | `Fun.EnableReplyYes` / `ReplyYesProbability` | true / 40 | 随机反驳是（消息=「是」时概率反驳「是你的头」） |
 | `Fun.EnableReplyNo` / `ReplyNoProbability` | true / 16 | 随机反驳不（词表抬杠，词表存于 `sayno.json` 可热更新） |
@@ -203,7 +205,11 @@ WarmupScheduler（30s 扫描）──▶ 密度/沉默/频控判定 ──▶ �
 
 **双事件去重（@ 判定权威）**：开启「接收所有消息」后，@ 消息会同时推送 `GROUP_AT_MESSAGE_CREATE` 与 `GROUP_MESSAGE_CREATE`（同 msg_id，官方注明相同 msg_id 可能重复推送）；部分环境下 @ 事件不再单独推送，此时以全量事件 payload 的 **`mentions` 数组（`is_you=true` 即 @ 了本机器人）** 为权威信号，content 中的 @ 标签（新格式 `<@openid>` / 历史格式 `<@!openid>`）作为兜底。分发层按事件类型分别去重，并保证 @ 语义绝不丢失：@ 事件先到则全量事件跳过；全量事件先到则 @ 事件仍补执行风控→指令→触发→工作流（跳过已完成的统计/历史，避免重复计数与重复入库）。机器人 openid 无需配置，自动从 mentions/@ 事件学习。
 
-**消息结构（缓存关键）**：`messages[0]=system(A 人设)` → `messages[1]=user(B 工具+C 群画像+D 锚点，静态)` → `messages[2]=user(E 历史，尾部增长)` → `messages[3]=user(F 当前)`。A~D 跨请求前缀不变 → DeepSeek 硬盘缓存命中（命中 ¥0.1/百万 vs 未命中 ¥1/百万）。
+**消息结构（缓存关键）**：`messages[0]=system(A 人设)` → `messages[1]=user(B 工具+C 群画像+D 锚点，静态)` → `messages[2]=user(E 历史，尾部增长)` → `messages[3]=user(F 当前)`。A~D 跨请求前缀不变 → DeepSeek 硬盘缓存命中。
+
+**工具调用（ReAct）**：轮次语义为「工具轮 ≤ `Llm.MaxToolRounds`」+「触顶后 1 次收口轮」。收口轮把 `tools` 原样保留、只把 `tool_choice` 设为 `"none"`（保持输入 token 序列不变，不破坏前缀缓存），让模型基于已拿到的工具结果作答，而不是丢弃结果落兜底句。温度两档：首轮与收口轮用 `Llm.Temperature`（0.9，保人设），工具链中段用 `Llm.ToolTemperature`（0.2，稳参数）。
+
+**成本口径（DeepSeek 官方定价页，2026-09-17 核对）**：`deepseek-flash` 每百万 tokens —— 输入命中 $0.003（低谷）/ $0.006（高峰）、输入未命中 $0.15 / $0.3、输出 $0.6 / $1.2（低谷价为高峰价的一半；高峰 = 周一至周五 UTC 01:00-04:00 与 06:00-10:00）。**命中与未命中相差 50 倍**（旧文档写的「¥0.1 vs ¥1」为 10 倍口径，已失效）。按人民币约 ¥0.02~0.04 vs ¥1.1~2.1 计。
 
 ## 验收对照（PRD 第 7 节）
 

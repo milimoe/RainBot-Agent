@@ -172,8 +172,10 @@ public class RuntimeConfig
                 case "Llm.ApiKey": _config.Llm.ApiKey = value; return true;
                 case "Llm.Model": _config.Llm.Model = value; return true;
                 case "Llm.Temperature": _config.Llm.Temperature = ParseDouble(value, nameof(_config.Llm.Temperature)); return true;
+                case "Llm.ToolTemperature": _config.Llm.ToolTemperature = ParseDouble(value, nameof(_config.Llm.ToolTemperature)); return true;
                 case "Llm.TimeoutSeconds": _config.Llm.TimeoutSeconds = ParseInt(value, nameof(_config.Llm.TimeoutSeconds)); return true;
                 case "Llm.MaxToolRounds": _config.Llm.MaxToolRounds = ParseInt(value, nameof(_config.Llm.MaxToolRounds)); return true;
+                case "Llm.ToolRoundMaxTokens": _config.Llm.ToolRoundMaxTokens = ParseInt(value, nameof(_config.Llm.ToolRoundMaxTokens)); return true;
                 case "Llm.MaxOutputLines": _config.Llm.MaxOutputLines = ParseInt(value, nameof(_config.Llm.MaxOutputLines)); return true;
                 case "Llm.MaxOutputChars": _config.Llm.MaxOutputChars = ParseInt(value, nameof(_config.Llm.MaxOutputChars)); return true;
                 case "Trigger.PassiveCooldownSeconds": _config.Trigger.PassiveCooldownSeconds = ParseInt(value, nameof(_config.Trigger.PassiveCooldownSeconds)); return true;
@@ -288,8 +290,8 @@ public class RuntimeConfig
 
     private static IEnumerable<string> AllKeys() =>
     [
-        "Llm.BaseUrl", "Llm.ApiKey", "Llm.Model", "Llm.Temperature", "Llm.TimeoutSeconds",
-        "Llm.MaxToolRounds", "Llm.MaxOutputLines", "Llm.MaxOutputChars",
+        "Llm.BaseUrl", "Llm.ApiKey", "Llm.Model", "Llm.Temperature", "Llm.ToolTemperature", "Llm.TimeoutSeconds",
+        "Llm.MaxToolRounds", "Llm.ToolRoundMaxTokens", "Llm.MaxOutputLines", "Llm.MaxOutputChars",
         "Trigger.PassiveCooldownSeconds", "Trigger.DensityWindowMinutes", "Trigger.DensityThreshold",
         "Trigger.SilenceMinutes", "Trigger.ActivePerHour", "Trigger.TopicAliveMinutes",
         "Trigger.SearchCacheMinutes", "Trigger.AtRecentWindowMinutes",

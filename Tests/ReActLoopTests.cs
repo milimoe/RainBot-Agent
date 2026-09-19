@@ -93,4 +93,69 @@ public class ReActLoopTests
         Assert.True(result.Failed);
         Assert.Equal("嗯……我暂时想不出怎么接这个话题，等我缓缓 🌧️", result.Text);
     }
+
+    [Fact]
+    public async Task 触顶收口_基于工具结果作答且禁用工具()
+    {
+        List<string> bodies = [];
+        HttpResponseMessage Responder(HttpRequestMessage request)
+        {
+            bodies.Add(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+            // 前 3 次（= MaxToolRounds）一直请求工具，第 4 次（收口轮）才给文本
+            string json = bodies.Count <= 3
+                ? """
+                  {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[
+                    {"id":"call_loop","type":"function","function":{"name":"web_search","arguments":"{\"query\":\"x\"}"}}
+                  ]}}],"usage":{"prompt_tokens":50,"completion_tokens":5,"prompt_cache_hit_tokens":40,"prompt_cache_miss_tokens":10}}
+                  """
+                : TestHelpers.LlmTextResponse("查到了，今天有雨 ☔");
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+        }
+
+        ServiceProvider sp = await TestHost.BuildReadyAsync(Responder);
+        var registry = sp.GetRequiredService<ToolRegistry>();
+        registry.RegisterExecutor("web_search", (_, _) => Task.FromResult("结果：今天有雨，22°C"));
+
+        var loop = sp.GetRequiredService<ReActLoop>();
+        var result = await loop.RunAsync(
+            [ChatMessage.System("测试"), ChatMessage.User("hi")],
+            new ToolExecutionContext { GroupOpenId = "g", IsAdmin = false, AllowProfileUpdate = false });
+
+        Assert.Equal(4, bodies.Count);                            // 3 工具轮 + 1 收口轮
+        Assert.Equal(3, result.ToolCallCount);
+        Assert.Contains("有雨", result.Text);                      // 用工具结果作答，而不是丢结果兜底
+        Assert.Contains("\"tool_choice\":\"none\"", bodies[^1]);   // 收口轮禁用工具
+        Assert.DoesNotContain("tool_choice", bodies[0]);           // 普通轮不序列化 → 请求体前缀不变
+    }
+
+    [Fact]
+    public async Task 温度两档_首轮主温度_工具链中段降温()
+    {
+        List<string> bodies = [];
+        HttpResponseMessage Responder(HttpRequestMessage request)
+        {
+            bodies.Add(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+            string json = bodies.Count == 1
+                ? """
+                  {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[
+                    {"id":"call_1","type":"function","function":{"name":"web_search","arguments":"{\"query\":\"x\"}"}}
+                  ]}}],"usage":{"prompt_tokens":50,"completion_tokens":5,"prompt_cache_hit_tokens":40,"prompt_cache_miss_tokens":10}}
+                  """
+                : TestHelpers.LlmTextResponse("今天有雨 ☔");
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+        }
+
+        ServiceProvider sp = await TestHost.BuildReadyAsync(Responder);
+        var registry = sp.GetRequiredService<ToolRegistry>();
+        registry.RegisterExecutor("web_search", (_, _) => Task.FromResult("结果"));
+
+        var loop = sp.GetRequiredService<ReActLoop>();
+        await loop.RunAsync(
+            [ChatMessage.System("测试"), ChatMessage.User("hi")],
+            new ToolExecutionContext { GroupOpenId = "g", IsAdmin = false, AllowProfileUpdate = false });
+
+        Assert.Equal(2, bodies.Count);
+        Assert.Contains("\"temperature\":0.9", bodies[0]); // 首轮：主温度（保人设）
+        Assert.Contains("\"temperature\":0.2", bodies[1]); // 工具链中段：降温（稳参数）
+    }
 }

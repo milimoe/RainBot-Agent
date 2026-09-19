@@ -21,7 +21,13 @@ public class DeepSeekClient(RuntimeConfig config, IHttpClientFactory httpClientF
     };
 
     /// <summary>发起一次对话（含工具），返回助手回复与用量统计</summary>
-    public async Task<ChatResult> ChatAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDef>? tools = null, int? maxTokens = null, CancellationToken ct = default)
+    /// <param name="messages">消息列表</param>
+    /// <param name="tools">工具定义（null 或不传则不带 tools 字段）</param>
+    /// <param name="maxTokens">本次请求 max_tokens</param>
+    /// <param name="temperature">采样温度（null 用 Llm.Temperature）</param>
+    /// <param name="toolChoice">工具选择策略："auto" / "none"。null 时不序列化该字段（保持请求体与历史一致）</param>
+    /// <param name="ct">取消令牌</param>
+    public async Task<ChatResult> ChatAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDef>? tools = null, int? maxTokens = null, double? temperature = null, string? toolChoice = null, CancellationToken ct = default)
     {
         var cfg = _config.Config.Llm;
         ChatRequest request = new()
@@ -29,9 +35,10 @@ public class DeepSeekClient(RuntimeConfig config, IHttpClientFactory httpClientF
             Model = cfg.Model,
             Messages = messages,
             Tools = tools != null && tools.Count > 0 ? tools : null,
-            Temperature = cfg.Temperature,
+            Temperature = temperature ?? cfg.Temperature,
             MaxTokens = maxTokens,
-            Stream = false
+            Stream = false,
+            ToolChoice = toolChoice
         };
 
         string json = JsonSerializer.Serialize(request, JsonOptions);
@@ -238,7 +245,10 @@ public class ToolFunction
     public JsonElement Parameters { get; set; } = JsonSerializer.Deserialize<JsonElement>("{\"type\":\"object\"}");
 }
 
-/// <summary>请求体（序列化顺序固定：model → messages → tools → temperature → max_tokens → stream）</summary>
+/// <summary>
+/// 请求体（序列化顺序固定：model → messages → tools → temperature → max_tokens → stream → tool_choice）。
+/// 新增字段一律追加在末尾，避免扰动已有字段序列化顺序（前缀稳定优先于可读性）。
+/// </summary>
 public class ChatRequest
 {
     [JsonPropertyName("model")]
@@ -258,6 +268,10 @@ public class ChatRequest
 
     [JsonPropertyName("stream")]
     public bool Stream { get; set; }
+
+    /// <summary>工具选择策略（none / auto / required）；null 不序列化</summary>
+    [JsonPropertyName("tool_choice")]
+    public string? ToolChoice { get; set; }
 }
 
 public class ChatResponse

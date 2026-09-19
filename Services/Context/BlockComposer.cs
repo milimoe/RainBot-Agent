@@ -35,6 +35,16 @@ public class BlockComposer(
     private readonly RuntimeConfig _config = config;
     private readonly ILogger<BlockComposer> _logger = logger;
 
+    /// <summary>
+    /// Block B 抬头：工具清单是「裸 JSON 数组」，正文里出现结构化 JSON 容易被模型模仿成
+    /// 「在回复里手打 web_search(query="…")」而不走 tool_calls 通道（temperature 0.9 下风险更高）。
+    /// 该抬头为常量 → 不破坏前缀稳定性。
+    /// </summary>
+    private const string ToolListHeader =
+        "[工具能力清单]\n" +
+        "下面这段 JSON 只说明你有哪些外部能力、各自需要什么参数，供你判断何时需要借助外部信息。\n" +
+        "需要调用时，必须走结构化工具调用（function call）通道；严禁在回复正文里手写、复述或以文本形式模拟调用语法。\n";
+
     /// <summary>组装完整上下文</summary>
     public async Task<ComposeResult> BuildAsync(TriggerContext ctx)
     {
@@ -43,7 +53,7 @@ public class BlockComposer(
 
         // 1. 固定块 A-D（低/中缓存区）
         string blockA = _personaLoader.GetSystemPrompt();
-        string blockB = _toolRegistry.GetSchemaJson();
+        string blockB = ToolListHeader + _toolRegistry.GetSchemaJson();
         GroupProfile profile = await _states.GetProfileAsync(ctx.GroupOpenId);
         string blockC = BuildGroupProfileBlock(profile);
         string blockD = await _anchorManager.GetAnchorsTextAsync(ctx.GroupOpenId, anchorCount);
