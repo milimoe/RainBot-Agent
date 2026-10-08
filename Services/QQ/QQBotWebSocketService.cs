@@ -171,7 +171,7 @@ public class QqGatewayConnection(
             {
                 case 10: // Hello
                     {
-                        WebSocketHelloData? hello = JsonSerializer.Deserialize<WebSocketHelloData>(payload.Data.ToString() ?? "");
+                        WebSocketHelloData? hello = JsonSerializer.Deserialize<WebSocketHelloData>(payload.Data?.ToString() ?? "");
                         if (hello != null)
                         {
                             _heartbeatIntervalMs = hello.HeartbeatInterval;

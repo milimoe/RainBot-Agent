@@ -20,14 +20,18 @@ public static class ConfigMetadata
         new("Llm.ToolRoundMaxTokens", "LLM", "工具轮输出上限", "工具轮 max_tokens，需容纳工具调用参数 JSON；过小会把多参数调用截断", "number", 64, 8192),
         new("Llm.MaxOutputLines", "LLM", "输出最大行数", "超出截断（铁律：最多 2 行）", "number", 1, 20),
         new("Llm.MaxOutputChars", "LLM", "输出最大字符", "超出截断", "number", 1, 4000),
+        new("Llm.EnableVision", "LLM", "视觉识图", "开启后带图消息会把图片内联进多模态请求（DeepSeek 视觉格式，支持 JPEG/PNG/GIF/WebP，单图 ≤8MB）；模型不支持图片时关闭，否则该轮请求会失败", "bool"),
 
         // ---------- 触发 ----------
         new("Trigger.PassiveCooldownSeconds", "触发", "被动冷却（秒）", "被动触发后群冷却期，冷却期内 @ 消息不唤醒", "number", 1, 3600),
+        new("Trigger.ImageLookbackSeconds", "触发", "图片回溯（秒）", "触发消息没带图时向前回溯触发者本人最近一张图一起识图，覆盖「先发图、再 @ 机器人分析」；0 = 关闭", "number", 0, 3600),
         new("Trigger.DensityWindowMinutes", "触发", "密度窗口（分钟）", "密度唤醒：统计时间窗口", "number", 1, 60),
         new("Trigger.DensityThreshold", "触发", "密度阈值（条）", "密度唤醒：窗口内消息数达标即暖群", "number", 2, 100),
         new("Trigger.SilenceMinutes", "触发", "沉默阈值（分钟）", "沉默唤醒：群聊静默该时长后暖群", "number", 1, 1440),
         new("Trigger.ActivePerHour", "触发", "主动发言上限", "单群每小时主动暖群次数上限", "number", 1, 24),
         new("Trigger.TopicAliveMinutes", "触发", "话题存活（分钟）", "窗口内有消息且距最后消息不超过该值才可密度唤醒", "number", 1, 1440),
+        new("Trigger.RandomChatProbability", "触发", "随机插嘴概率%", "普通群消息（未 @）按此概率触发人设回复，像群友一样搭话；0 = 关闭。命中后还会受插嘴冷却、被动冷却与静默群限制", "number", 0, 100),
+        new("Trigger.RandomChatCooldownSeconds", "触发", "插嘴冷却（秒）", "同群两次随机插嘴的最小间隔（与被动冷却独立），调大更克制", "number", 1, 86400),
         new("Trigger.SearchCacheMinutes", "触发", "搜索缓存（分钟）", "搜索结果本地缓存时长", "number", 1, 1440),
         new("Trigger.AtRecentWindowMinutes", "触发", "互动窗口（分钟）", "群友在该时间窗内出现过才会被 @（互动增强）", "number", 1, 1440),
 
@@ -68,6 +72,7 @@ public static class ConfigMetadata
         // ---------- 通用 ----------
         new("PublicBaseUrl", "通用", "公网域名", "静态资源基址（如 https://bot.example.com），只需设置一次；OSM 梗图等自动以「域名 + wwwroot 相对路径」对外提供，留空则相关功能禁用", "text"),
         new("DebugMode", "通用", "调试模式", "开启后在每次对话输出末尾追加一行「x tokens, x tools」统计（输入+输出 token 总数、工具调用次数），排查成本与工具行为用", "bool"),
+        new("DebugShowReasoning", "通用", "思维显示", "需先开启调试模式：把模型的思维内容用代码块包起来，与回复内容一起发送，便于直接观察推理过程（仅推理型模型有效）", "bool"),
         new("MarkdownReply", "通用", "Markdown 回复", "开启后所有文本回复以 Markdown 消息（msg_type=2）发送到 QQ 网关而非纯文本；调试统计行显示为「> x tokens, x tools」块引用", "bool"),
         new("PersonaPath", "通用", "人设文件路径", "相对运行目录；编辑保存即热重载", "text"),
         new("SayNoPath", "通用", "SayNo 词表路径", "反驳不词表 JSON 路径；编辑保存即热重载", "text")

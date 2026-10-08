@@ -4,17 +4,16 @@ import { Badge, toast } from '../components/ui.jsx';
 import { IconPlus, IconX, IconLock } from '../components/Icons.jsx';
 
 /**
- * 设置页：人设（热重载）/ SayNo 词表 / 管理员 / OSM 梗图 / 访问安全。
- * 机器人凭据请在「机器人」页按实例维护（多实例架构，无全局网关配置）。
+ * 设置页：人设（热重载）/ SayNo 词表 / OSM 梗图 / 访问安全。
+ * 管理员已按机器人实例维护，请在「机器人」页编辑（不同机器人下同一 QQ 用户的 openid 不同）。
  */
 export default function SettingsPage({ boot, onAuthFail }) {
   return (
     <div className="qq-scroll h-full min-w-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl space-y-5 px-6 py-6">
-        <PageTitle title="设置" desc="人设与词表保存后即时热重载；机器人凭据请到「机器人」页按实例维护。" />
+        <PageTitle title="设置" desc="人设与词表保存后即时热重载；机器人凭据与管理员请到「机器人」页按实例维护。" />
         <PersonaCard onAuthFail={onAuthFail} />
         <SayNoCard onAuthFail={onAuthFail} />
-        <AdminCard onAuthFail={onAuthFail} />
         <OsmCard onAuthFail={onAuthFail} />
         <SecurityCard boot={boot} />
       </div>
@@ -207,89 +206,6 @@ function SayNoCard({ onAuthFail }) {
             )}
           </div>
         ))}
-      </div>
-    </Card>
-  );
-}
-
-// ---------- 管理员 ----------
-
-function AdminCard({ onAuthFail }) {
-  const [admins, setAdmins] = useState([]);
-  const [input, setInput] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const d = await api('/api/webui/settings/admins');
-      setAdmins(d.openIds || []);
-    } catch (e) {
-      if (e instanceof AuthError) onAuthFail?.();
-      else toast(e.message, 'error');
-    }
-  }, [onAuthFail]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const add = async () => {
-    if (!input.trim() || busy) return;
-    setBusy(true);
-    try {
-      await api('/api/webui/settings/admins', { method: 'POST', body: { openId: input.trim() } });
-      setInput('');
-      toast('已添加管理员', 'success');
-      await load();
-    } catch (e) {
-      toast(e.message, 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remove = async (id) => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await api(`/api/webui/settings/admins/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      toast('已移除管理员', 'success');
-      await load();
-    } catch (e) {
-      toast(e.message, 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Card title="👮 管理员 OpenID" desc="机器人自我维护的管理员列表（与群管理员无关），管理员可用全部 /admin 指令">
-      <div className="mb-2.5 flex flex-wrap gap-1.5">
-        {admins.length === 0 && <span className="text-xs text-qq-sub">暂无管理员（机器人首次被 @ 不会自动添加，请手动维护）</span>}
-        {admins.map((id) => (
-          <span key={id} className="flex items-center gap-1.5 rounded-full bg-qq-bg px-2.5 py-1 font-mono text-xs">
-            {id}
-            <button className="text-qq-sub hover:text-qq-red" disabled={busy} onClick={() => remove(id)}>
-              <IconX size={11} />
-            </button>
-          </span>
-        ))}
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && add()}
-          placeholder="粘贴群友 OpenID…"
-          className="w-full rounded-md border border-qq-border px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-qq-blue"
-        />
-        <button
-          className="flex shrink-0 items-center gap-1 rounded-md bg-qq-blue px-3 py-1.5 text-xs text-white hover:bg-qq-blue-deep disabled:opacity-40"
-          disabled={!input.trim() || busy}
-          onClick={add}
-        >
-          <IconPlus size={12} /> 添加
-        </button>
       </div>
     </Card>
   );

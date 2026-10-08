@@ -69,6 +69,8 @@ builder.Services.AddHostedService<WarmupScheduler>();
 
 // ---------- LLM 与上下文 ----------
 builder.Services.AddSingleton<DeepSeekClient>();
+builder.Services.AddSingleton<ReasoningRecorder>(); // 调试模式：按群记录最后一次思维链（/admin reasoning 查看）
+builder.Services.AddSingleton<VisionImageLoader>(); // 视觉识图：图片下载到内存并转 base64（不落盘、无需清理）
 builder.Services.AddSingleton<ReActLoop>();
 builder.Services.AddSingleton<CacheMonitor>();
 builder.Services.AddSingleton<PersonaLoader>();

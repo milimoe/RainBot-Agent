@@ -6,6 +6,7 @@ namespace RainBot.Services.Safety;
 /// <summary>
 /// 输出风控：发送前检查。
 /// - 隐私泄露：不得包含 openid（长串十六进制/短 ID 模式），命中整段替换。
+/// - 兜底话术：命中「想不出怎么接话题」等敷衍句模式 → 不发送（静默跳过）。
 /// - 超长控制：强制 ≤ MaxOutputLines 行、≤ MaxOutputChars 字符（截断兜底）——**仅对 LLM 对话回复生效**。
 /// - 空文本/异常文本不发送。
 ///
@@ -19,6 +20,12 @@ public class OutputFilter(RuntimeConfig config, ILogger<OutputFilter> logger)
 
     /// <summary>openid 形如 32 位十六进制长串</summary>
     private static readonly Regex OpenIdPattern = new(@"[0-9a-fA-F]{20,}", RegexOptions.Compiled);
+
+    /// <summary>
+    /// 兜底话术模式：「想不出怎么接话题/等我缓缓」这类敷衍句一律不发。
+    /// 代码层已不再生成此类话术，该防线拦截模型自己从历史输出里模仿出来的变体。
+    /// </summary>
+    private static readonly Regex FallbackPhrasePattern = new(@"想不出.{0,8}(接|说)|(等我|让我)缓缓|接不上", RegexOptions.Compiled);
 
     /// <summary>
     /// 审核输出，返回可发送的文本；null 表示不应发送。
@@ -51,10 +58,19 @@ public class OutputFilter(RuntimeConfig config, ILogger<OutputFilter> logger)
             return null;
         }
 
-        // 非 LLM 对话回复：到此为止（不受 LLM 行数/字符配置影响）
+        // 非 LLM 对话回复：到此为止（不受 LLM 行数/字符配置影响，也不做兜底话术拦截——
+        // 指令回复是代码硬编码、思维链查看是诊断内容，均不经过模型生成）
         if (!applyLlmLimits)
         {
             return result;
+        }
+
+        // 兜底话术防线：命中即静默跳过（宁可不回，不发敷衍空话）。
+        // 仅对 LLM 生成的回复生效，拦截模型从历史输出里模仿出的敷衍句。
+        if (FallbackPhrasePattern.IsMatch(result))
+        {
+            _logger.LogWarning("【输出风控】命中兜底话术模式，静默跳过不发送：{Text}", result);
+            return null;
         }
 
         int maxLines = _config.Config.Llm.MaxOutputLines;

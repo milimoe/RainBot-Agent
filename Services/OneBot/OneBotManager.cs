@@ -178,8 +178,10 @@ public class OneBotManager(
 
         string selfQq = string.IsNullOrWhiteSpace(instance.OneBot.SelfQq) ? evt.SelfId.ToString() : instance.OneBot.SelfQq;
         bool isAt = OneBotMessage.IsAt(evt.Message, selfQq);
+        List<string> imageUrls = OneBotMessage.ExtractImageUrls(evt.Message);
         string content = OneBotMessage.ExtractText(evt.Message);
-        if (content.Length == 0)
+        // 纯图片消息保持空文本（走 [图片] 占位 + 多模态识图）；其余无文本消息退回原始 CQ 码文本
+        if (content.Length == 0 && imageUrls.Count == 0)
         {
             content = evt.RawMessage ?? "";
         }
@@ -194,9 +196,14 @@ public class OneBotManager(
             SenderOpenId = senderId,
             Username = username,
             Content = content,
+            ImageUrls = imageUrls,
+            // 引用（回复）消息：OneBot 用 reply 消息段带被引用消息 id，
+            // MsgIdx 存本实现的消息 id（与 reply 段同命名空间），供本地历史按引用回溯
+            MsgIdx = evt.MessageId.ToString(),
+            RefMsgIdx = OneBotMessage.GetReplyId(evt.Message) ?? "",
             // 私聊里每一条都是对机器人说的，直接视为触发
             IsAtRobot = isPrivate || isAt,
-            IsAdmin = await _config.IsAdminAsync(senderId),
+            IsAdmin = await _store.IsAdminAsync(botId, senderId),
             // OneBot 只有单次推送（没有官方那种 @/全量双事件），按全量消息语义处理
             IsFullMessage = true,
             IsPrivate = isPrivate,

@@ -12,7 +12,8 @@
 
 | 模块 | 说明 |
 | :--- | :--- |
-| 双轨触发 | 被动（@/回复，即时响应 + 每群 30s 冷却，冷却期消息仍入队统计）；主动暖群（密度唤醒 1min≥10 条 / 沉默唤醒 30min / 每小时 ≤1 次；**暖群无内容可说时静默不发**，失败 15 分钟冷却重试，不会发「想不出怎么接话题」等空话） |
+| 双轨触发 | 被动（@/回复，即时响应 + 每群 30s 冷却，冷却期消息仍入队统计）；随机插嘴（普通群消息按 `RandomChatProbability`% 概率触发人设回复，像群友一样搭话；插嘴独立冷却 + 被动冷却互斥 + 静默群不出声；**纯图片消息同样可触发**，见「识图」）；主动暖群（密度唤醒 1min≥10 条 / 沉默唤醒 30min / 每小时 ≤1 次；**最后一条消息是自己则不暖群**，不接自己的话；失败 15 分钟冷却重试）。**任何触发类型 LLM 无内容可说时一律静默跳过，绝不发「想不出怎么接话题」等兜底空话**（输出风控还会拦截模型模仿出的此类话术）；随机插嘴拒绝接话用固定哨兵 `(empty)` 表达，由系统识别后静默处理，不会把哨兵本身发出去 |
+| 识图 | 带图消息（QQ 官方 `attachments` 中 image/*、OneBot image 消息段直链）走多模态识图：图片**下载到内存**并转 base64 data URL 内联进请求（DeepSeek 视觉格式，不落盘因此无需清理），与同一轮的文本一起交给模型理解后回复；单图 ≤8MB、单条最多 4 张、下载超时 20s；下载失败/超限/非图片自动降级纯文本，不中断回复。图片本体**不进历史与上下文**（历史里是 `[图片]` 占位），因此不会重复消耗 token；`Llm.EnableVision=false` 可整体关闭。<br>**引用（回复）消息**：官方在事件里直接下发被引用内容——`message_type=103`（引用消息）/`102`（聊天记录）时，被引用正文与附件在 `msg_elements[].content` / `.attachments`，直接取用（被引用图片同样内联识图）；只带 `message_scene.ext` 的 `ref_msg_idx`（未下发内容）时，按索引从本地历史回溯被引用那条（QQ 官方用 msg_idx，OneBot 用 `reply` 消息段的消息 id）。<br>**先发图、再 @ 机器人分析**：既不是引用也没带图时，向前回溯**触发者本人**最近一张图（窗口 `Trigger.ImageLookbackSeconds`，默认 180s，0 = 关闭；只认本人的图，不跨人取图）。图片 URL 与消息索引仅存内存，重启后回溯为空 |
 | 上下文缓存 | Block A-F 固定顺序组装，可变内容只追加尾部、头部整条丢弃；153.6k 水位三级治理（删 E → 缩 D → 蒸馏压缩 + 降级运行） |
 | 群友画像 | L0 全量画像存库不进上下文；L1 锚点 Top 5 常驻（<20 tokens）；L2 触发式召回进尾部块，下轮即弃 |
 | ReAct 工具 | `web_search`（10 分钟话题缓存）、`get_user_profile`、`update_user_profile`（仅暖群）、管理员工具；工具轮次上限防死循环，触顶自动补一次 `tool_choice=none` 收口请求（不丢弃已拿到的工具结果）；温度两档（对话/收口 0.9、工具链中段 0.2） |
@@ -29,7 +30,7 @@
 export BOT__APPID="你的AppID"
 export BOT__SECRET="你的AppSecret"
 export RAIN__LLM__APIKEY="你的DeepSeekKey"
-export RAIN__ADMINOPENIDS__0="你的OpenID"   # 第一个管理员
+export RAIN__ADMINOPENIDS__0="你的OpenID"   # 旧版全局管理员（兜底兼容，推荐在 WebUI「机器人」页按实例配置管理员）
 ```
 
 > `BOT__APPID` / `BOT__SECRET` 仅作**旧版迁移兼容**（首次启动自动迁移为默认实例 `qq`）；新部署请直接在 WebUI「机器人」页按实例维护凭据（多实例架构，无全局网关配置）。`RAIN__PUBLICBASEURL` 为公网域名，只需设置一次，OSM 梗图等静态资源自动以「域名 + wwwroot 相对路径」对外提供。
@@ -51,11 +52,11 @@ curl http://localhost:8080/health   # {"status":"ok"} 即连接成功
 | 页面 | 功能 |
 | :--- | :--- |
 | 消息 | **仿 NTQQ 聊天窗口**：会话列表 + 头像/气泡/昵称/日期分隔线；多实例时支持按实例下拉筛选会话；SSE 实时推送群消息与机器人回复；内置「WebUI 试聊群」可模拟群友发言——消息走真实处理链（统计→风控→历史→随机互动→LLM），机器人回复只显示在网页并落库回看，不发送到 QQ；真实群在右上角「⋯」菜单开启「试聊拦截」后同样可在网页试聊 |
-| 机器人 | **多实例管理**：注册/编辑/启停机器人实例（QQ 官方 AppID+Secret 或 OneBot 接入），连接状态与 OneBot 接入地址；**QQ 官方实例另支持「自定义菜单 + 指令面板」在线配置**（单聊窗口底部按钮、按场景生效的指令面板，保存即调官方 API 生效） |
+| 机器人 | **多实例管理**：注册/编辑/启停机器人实例（QQ 官方 AppID+Secret 或 OneBot 接入），连接状态与 OneBot 接入地址；**按实例维护管理员**（QQ 官方填 openid / OneBot 填 QQ 号，保存即生效）；**QQ 官方实例另支持「自定义菜单 + 指令面板」在线配置**（单聊窗口底部按钮、按场景生效的指令面板，保存即调官方 API 生效） |
 | 配置 | 全部可热改参数分组编辑（LLM/触发/上下文/风控/随机互动/通用），类型化控件 + 一键保存（落库即时生效）+ 覆盖标记与恢复默认；含公网域名（静态资源基址，只需设置一次） |
-| 设置 | 人设 `persona.md` 在线编辑（保存热重载）、SayNo 词表增删（写回 sayno.json）、管理员 OpenID 维护、OSM 梗图目录（域名 + 自动扫描 `wwwroot/osm/`，路径零配置）；**机器人凭据请到「机器人」页按实例维护** |
+| 设置 | 人设 `persona.md` 在线编辑（保存热重载）、SayNo 词表增删（写回 sayno.json）、OSM 梗图目录（域名 + 自动扫描 `wwwroot/osm/`，路径零配置）；**机器人凭据与管理员请到「机器人」页按实例维护** |
 | 状态 | QQ 网关连接状态 / 运行时长 / 队列深度 / 缓存命中率成本仪表 / **DeepSeek 账户余额（首次打开自动查询一次 + 手动刷新 + 最后刷新时间）** / **MCP 工具服务（各 server 连接状态与工具数）** / 每群统计，支持静默与重置上下文操作 |
-| 日志 | 双视图：「日志」流（与 ILogger 同源，级别过滤 / 搜索 / 暂停 / 异常展开）+「工具调用」视图（内置与 MCP 工具调用记录：名称 / 参数 / 结果 / 耗时 / 成败，内存保留最近 200 条） |
+| 日志 | 双视图：「日志」流（与 ILogger 同源，级别过滤 / 搜索 / 暂停 / 异常展开）+「工具调用」视图（内置与 MCP 工具调用记录：名称 / 参数 / 结果 / 耗时 / 成败，内存保留最近 200 条）；框架 HTTP 管线日志（`System.Net.Http.HttpClient.*`）在日志页降为 Debug 展示，Info 视图只留业务日志 |
 
 ### 鉴权
 
@@ -86,6 +87,9 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 | 参数 | 默认值 | 说明 |
 | :--- | :--- | :--- |
 | `Trigger.PassiveCooldownSeconds` | 30 | 被动触发后群冷却（秒） |
+| `Trigger.ImageLookbackSeconds` | 180 | **图片回溯**（0 = 关闭）：触发消息本身没带图时，向前回溯**触发者本人**该窗口内最近一张图一起识图，覆盖「先发图、再 @ 机器人分析」的跟进提问；只认本人的图（不跨人取图） |
+| `Trigger.RandomChatProbability` | 5 | 随机插嘴概率%（**0 = 关闭**）：普通群消息（未 @）按此概率触发人设回复；命中后还受插嘴冷却、被动冷却互斥、静默群限制 |
+| `Trigger.RandomChatCooldownSeconds` | 600 | 插嘴冷却（秒）：同群两次插嘴最小间隔，与被动冷却独立 |
 | `Trigger.DensityWindowMinutes` / `DensityThreshold` | 1 / 10 | 密度唤醒窗口与阈值 |
 | `Trigger.SilenceMinutes` | 30 | 沉默唤醒阈值（分钟） |
 | `Trigger.ActivePerHour` | 1 | 单群每小时主动发言上限 |
@@ -99,7 +103,8 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 | `Safety.MaxQpmPerGroup` | 15 | 单群发送频控（官方 20 留余量，勿调大） |
 | `Llm.Model` | deepseek-flash | 单一模型名（`deepseek-v4-flash` 为官方已退役别名，仍可用但建议改新名） |
 | `Llm.Temperature` / `ToolTemperature` | 0.9 / 0.2 | 主温度（对话与收口轮，保人设）；工具链中段降温（稳工具选择与参数） |
-| `Llm.ToolRoundMaxTokens` | 512 | 工具轮 `max_tokens`：需容纳工具调用参数 JSON，过小会截断多参数调用；收口轮按 `MaxOutputChars` 推导，不用该值 |
+| `Llm.ToolRoundMaxTokens` | 4096 | 工具轮 `max_tokens`：需容纳工具调用参数 JSON，过小会截断多参数调用；**推理型模型的思维链计入输出 token**，过小会把预算耗在思考上导致 content 为空（finish_reason=length）→ 无内容静默跳过；收口轮共用该值 |
+| `Llm.EnableVision` | true | **视觉识图**：带图消息把图片内联进多模态请求（DeepSeek 视觉格式，支持 JPEG/PNG/GIF/WebP，单图 ≤8MB、单条最多内联 4 张）；模型/端点不支持图片时请关闭，否则该轮请求会失败 |
 | `PersonaPath` | Persona/persona.md | 人设文件（机器人实例可覆盖，留空用全局） |
 | `Fun.EnableReplyYes` / `ReplyYesProbability` | true / 40 | 随机反驳是（消息=「是」时概率反驳「是你的头」） |
 | `Fun.EnableReplyNo` / `ReplyNoProbability` | true / 16 | 随机反驳不（词表抬杠，词表存于 `sayno.json` 可热更新） |
@@ -109,6 +114,7 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 | `Fun.EnableOsm` / `OsmProbability` | true / 2 | 随机 OSM 梗图（**图片无需配置路径**：自动扫描 `wwwroot/osm/` 目录，URL = 公网域名 + 相对路径） |
 | `PublicBaseUrl` | 空 | **公网域名（只需设置一次）**：所有静态资源（OSM 梗图等）以「域名 + wwwroot 相对路径」对外提供；留空则 OSM 自动禁用 |
 | `DebugMode` | false | **调试模式**：开启后在每次对话输出末尾追加一行「x tokens, x tools」（输入+输出 token 总数、工具调用次数），排查成本与工具行为用 |
+| `DebugShowReasoning` | false | **思维显示**：需先开启 `DebugMode`。开启后把模型的思维内容（reasoning_content）用 ``` 包起来，与回复一起发送（仅推理型模型会返回思维内容；思维链单独过风控，超 1000 字截断） |
 | `MarkdownReply` | false | **Markdown 回复**：开启后所有文本回复以 Markdown 消息（msg_type=2）发送到 QQ 网关而非纯文本（msg_type=0）；调试统计行显示为「> x tokens, x tools」块引用 |
 | `Fun.EnableReverseAt` / `ReverseAtProbability` | true / 70 | 反向艾特（@ 机器人时把 @ 弹回发送者，不阻断 AI 回复） |
 | `Fun.EnableCallBrother` / `CallBrotherProbability` | true / 4 | 随机叫哥（@+名字截取+随机后缀，延迟 30s） |
@@ -167,9 +173,9 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
   - 发送通道按优先级选路（WS 会话优先，HTTP 兜底）；@ 用 at 消息段、引用回复用 reply 段；
   - 管理页会给出可直接复制的上报地址与反向 WS 地址；机器人 QQ 号收到首条事件自动学习，无需手填；
   - OneBot11 无原生 Markdown 消息 → `MarkdownReply` 在该平台自动降级为纯文本。
-- **管理员名单**为全局（两平台 ID 格式不同，天然不冲突）；`/health` 的 `bots` 字段透出各实例连接状态。
+- **管理员按机器人实例维护**（「机器人」页编辑，或群内 `/admin admin add|remove`）：QQ 官方实例用群内 openid 匹配（同一 QQ 用户在不同机器人下 openid 不同），OneBot11 实例用 QQ 号匹配；旧版全局 `AdminOpenIds`（appsettings/库表历史值）仍对所有实例兜底生效。`/health` 的 `bots` 字段透出各实例连接状态。
 
-## 指令表（管理员为机器人自我维护的 OpenID 列表，与群管理员无关）
+## 指令表（管理员为机器人实例自我维护的 ID 列表，与群管理员无关）
 
 > 指令**无需 @ 机器人**，群里直接发送即可（@ 发送同样有效）；管理员指令按权限放行，非管理员会收到提示。全量消息模式下回复不携带 msg_id（官方约束：被动回复仅适用于 @ 事件消息），以主动消息形式发送。
 
@@ -182,7 +188,8 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 | `/admin set 参数 值` | 管理员 | 热改参数（即时生效、落库持久化） |
 | `/admin mute [分钟]` / `/admin unmute` | 管理员 | 一键静默 / 解除 |
 | `/admin stats` | 管理员 | 本群消息量与缓存命中率 |
-| `/admin admin add|remove openid` | 管理员 | 维护管理员列表 |
+| `/admin reasoning`（别名 `/admin 思考`） | 管理员 | 查看本群最后一次模型思维链（reasoning_content）；需 `DebugMode=true`，仅存内存，用于定位推理型模型思考耗尽输出预算导致的空回复 |
+| `/admin admin add\|remove openid` | 管理员 | 维护**本实例**管理员（QQ 官方实例填群内 openid，OneBot11 实例填 QQ 号；也可在 WebUI「机器人」页编辑） |
 | `/admin forget 短id` | 管理员 | 清除指定用户画像 |
 | `/admin sayno list` | 管理员 | 列出反驳不全部词表 |
 | `/admin sayno 表名 add\|remove 词` | 管理员 | 增删词表词条（写回 sayno.json，即时生效） |
@@ -218,7 +225,7 @@ WarmupScheduler（30s 扫描）──▶ 密度/沉默/频控判定 ──▶ �
 | 缓存命中率 ≥ 90%（正常模式） | BlockComposer 前缀稳定（测试 `上下文组装_前缀稳定` 断言 A/B+C+D 不变）；`/admin stats` 与日志可查实时命中率 |
 | @响应率 > 95%（扣除冷却） | 双事件去重（@/全量同 msg_id 协调，@ 语义优先）+ 冷却期队列化，被动触发链路全覆盖；测试覆盖冷却边界与双事件到达顺序 |
 | 暖群自然度 ≥ 60% | 决策 Prompt（Block F 暖群提示：话题/情绪）+ 互动增强（锚点 @ 仅在 30 分钟活跃窗口内） |
-| 搜索硬错误率 ≤ 5% | 10 分钟话题缓存 + 失败兜底文案；ReAct 工具结果截断 |
+| 搜索硬错误率 ≤ 5% | 10 分钟话题缓存 + 搜索失败时让模型照实简短说明（仍无内容则静默跳过）；ReAct 工具结果截断 |
 | 153k 水位不崩溃不死循环 | WatermarkManager 三级治理（删 E 头部→缩 D→蒸馏+降级），蒸馏后重建上下文；测试覆盖蒸馏/降级/静默重置 |
 
 ## 测试

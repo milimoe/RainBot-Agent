@@ -9,7 +9,8 @@ public sealed record WebUiLogEntry(long Seq, DateTimeOffset Time, string Level, 
 /// <summary>
 /// WebUI 日志捕获器：以 ILoggerProvider 注册进日志管线（与 ILogger 输出同源），
 /// 全部类别/级别的日志写入内存环形缓冲（2000 条），供「日志」页轮询查看。
-/// 捕获范围遵循应用自身的日志级别规则（appsettings Logging 段）。
+/// 捕获范围遵循应用自身的日志级别规则（appsettings Logging 段）；
+/// 框架 HTTP 管线日志（System.Net.Http.HttpClient.*）的 Info 在缓冲中降为 Debug 展示。
 /// </summary>
 public class WebUiLogProvider : ILoggerProvider
 {
@@ -46,7 +47,7 @@ public class WebUiLogProvider : ILoggerProvider
         WebUiLogEntry entry = new(
             Interlocked.Increment(ref _seq),
             DateTimeOffset.UtcNow,
-            LevelName(level),
+            LevelName(Demote(level, category)),
             category,
             message,
             exception?.ToString());
@@ -56,6 +57,16 @@ public class WebUiLogProvider : ILoggerProvider
             _buffer.TryDequeue(out _);
         }
     }
+
+    /// <summary>
+    /// 框架 HTTP 管线日志（System.Net.Http.HttpClient.*，如 "Start processing HTTP request" /
+    /// "Received HTTP response headers - 200"）的 Info 级降为 Debug：纯连接噪声、无业务信息，
+    /// 日志页 Info 视图不再被刷屏，需要时切到 Debug 级别查看。其余类别与级别原样保留。
+    /// </summary>
+    private static LogLevel Demote(LogLevel level, string category)
+        => level == LogLevel.Information && category.StartsWith("System.Net.Http.HttpClient", StringComparison.Ordinal)
+            ? LogLevel.Debug
+            : level;
 
     private static string LevelName(LogLevel level) => level switch
     {

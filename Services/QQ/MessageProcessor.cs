@@ -1,5 +1,6 @@
 using RainBot.Models;
 using RainBot.Services.Commands;
+using RainBot.Services.Config;
 using RainBot.Services.Context;
 using RainBot.Services.Fun;
 using RainBot.Services.Profile;
@@ -12,7 +13,7 @@ namespace RainBot.Services.QQ;
 
 /// <summary>
 /// 入站消息处理（消息队列消费者）：
-/// 统计 → 输入风控 → 历史入库 → 命令处理（无需 @，管理员指令按权限放行）→ 随机互动 → 被动触发判定 → 工作流。
+/// 统计 → 输入风控 → 历史入库 → 命令处理（无需 @，管理员指令按权限放行）→ 随机互动 → 被动触发判定（@ 即时响应 / 普通消息概率插嘴）→ 工作流。
 /// </summary>
 public class MessageProcessor
 {
@@ -26,6 +27,7 @@ public class MessageProcessor
     private readonly OutputFilter _outputFilter;
     private readonly SendQueue _sendQueue;
     private readonly FunService _fun;
+    private readonly RuntimeConfig _config;
     private readonly ILogger<MessageProcessor> _logger;
     private readonly WebUiBridge? _webUi;
 
@@ -40,6 +42,7 @@ public class MessageProcessor
         OutputFilter outputFilter,
         SendQueue sendQueue,
         FunService funService,
+        RuntimeConfig config,
         ILogger<MessageProcessor> logger,
         WebUiBridge? webUi = null)
     {
@@ -53,6 +56,7 @@ public class MessageProcessor
         _outputFilter = outputFilter;
         _sendQueue = sendQueue;
         _fun = funService;
+        _config = config;
         _logger = logger;
         _webUi = webUi;
     }
@@ -78,8 +82,10 @@ public class MessageProcessor
             await _states.OnMessageAsync(message);
         }
 
-        // 2. 输入风控：@ 消息命中敏感内容 → 不回应（仅标记观察）
-        if (message.IsAtRobot && _inputFilter.Check(message.Content) != null)
+        // 2. 输入风控：@ 消息命中敏感内容 → 不回应（仅标记观察）；
+        //    普通消息命中敏感内容 → 不回应 @ 时同样不参与随机插嘴（避免拿敏感话头开涮）
+        bool sensitive = _inputFilter.Check(message.Content) != null;
+        if (message.IsAtRobot && sensitive)
         {
             _logger.LogInformation("群 {Group} 收到敏感 @ 消息，不回应（已标记观察）", message.GroupOpenId);
             return;
@@ -92,6 +98,13 @@ public class MessageProcessor
             await _historyStore.AppendAsync(message.GroupOpenId, message);
         }
 
+        // 3.5 机器人自己的消息（全量模式回显，author.bot=true）：
+        //     统计/历史已记录（机器人发言应进入上下文），但不再触发指令/随机互动/被动回复——机器人不回应自己。
+        if (message.IsFromBot)
+        {
+            return;
+        }
+
         // 4. 指令处理（无需 @，群里直接发送指令即可；@ 发送同样有效，管理员指令按权限放行）
         {
             ParsedCommand? command = _commandParser.Parse(message.Content);
@@ -102,7 +115,7 @@ public class MessageProcessor
                 {
                     _passiveTrigger.MarkTriggered(message.GroupOpenId, now);
                 }
-                string? reply = await _commandParser.ExecuteAsync(command, message.GroupOpenId, message.SenderOpenId, message.IsAdmin);
+                string? reply = await _commandParser.ExecuteAsync(command, message.GroupOpenId, message.SenderOpenId, message.IsAdmin, message.BotId);
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
                     _logger.LogDebug("指令命中：{Kind}（group={Group} msg={MsgId} isAt={IsAt}），回复：{Reply}",
@@ -144,38 +157,99 @@ public class MessageProcessor
             }
         }
 
-        // 6. 被动触发判定（@ + 冷却）
-        if (!_passiveTrigger.ShouldTrigger(message, now))
+        // 6. 被动触发判定：@/回复 → 即时响应；普通消息 → 概率插嘴（Trigger.RandomChatProbability，0 = 关闭）
+        bool atTriggered = _passiveTrigger.ShouldTrigger(message, now);
+        bool randomChat = !atTriggered && _passiveTrigger.ShouldRandomChat(message, now, sensitive);
+        if (!atTriggered && !randomChat)
         {
             if (_logger.IsEnabled(LogLevel.Debug))
             {
-                _logger.LogDebug("被动触发未通过（冷却中或非 @）：group={Group} msg={MsgId} isAt={IsAt}", message.GroupOpenId, message.MsgId, message.IsAtRobot);
+                _logger.LogDebug("被动触发未通过（冷却中或非 @ 且未命中插嘴概率）：group={Group} msg={MsgId} isAt={IsAt}", message.GroupOpenId, message.MsgId, message.IsAtRobot);
             }
             return;
         }
-        _passiveTrigger.MarkTriggered(message.GroupOpenId, now);
+        if (atTriggered)
+        {
+            _passiveTrigger.MarkTriggered(message.GroupOpenId, now);
+        }
+        else
+        {
+            _passiveTrigger.MarkRandomChat(message.GroupOpenId, now);
+        }
         if (_logger.IsEnabled(LogLevel.Debug))
         {
-            _logger.LogDebug("被动触发通过，进入工作流：group={Group} msg={MsgId}", message.GroupOpenId, message.MsgId);
+            _logger.LogDebug("被动触发通过（{Kind}），进入工作流：group={Group} msg={MsgId}", randomChat ? "随机插嘴" : "@", message.GroupOpenId, message.MsgId);
         }
 
-        // 7. 构建触发上下文（L2 画像召回进 Block F，下轮丢弃）
-        string recalled = message.IsAtRobot && !string.IsNullOrEmpty(message.SenderOpenId)
+        // 7. 构建触发上下文（L2 画像召回进 Block F，下轮丢弃；插嘴召回说话人画像用于个性化搭话）
+        string recalled = !string.IsNullOrEmpty(message.SenderOpenId)
             ? await _profileRecaller.RecallAsync(message.GroupOpenId, message.SenderOpenId)
             : "";
-                TriggerContext ctx = new()
-                {
-                    BotId = message.BotId,
-                    GroupOpenId = message.GroupOpenId,
-                    IsPrivate = message.IsPrivate,
-            Type = TriggerType.Passive,
-            Reason = message.IsPrivate ? "私聊互动" : message.IsAtRobot ? "被群友 @ 互动" : "群友互动",
+        // 图片与引用：本条附件/引用自带优先，其次按 ref_msg_idx 本地回溯，最后按时间窗回溯本人最近的图
+        (List<string> imageUrls, string quotedText) = ResolveContext(message, now);
+
+        TriggerContext ctx = new()
+        {
+            BotId = message.BotId,
+            GroupOpenId = message.GroupOpenId,
+            IsPrivate = message.IsPrivate,
+            Type = randomChat ? TriggerType.RandomChat : TriggerType.Passive,
+            Reason = randomChat
+                ? "随机搭话（群友在群里说话但没 @ 你，群消息历史最后一条就是触发消息）"
+                : message.IsPrivate ? "私聊互动" : "被群友 @ 互动",
             SenderOpenId = message.SenderOpenId,
             RecalledProfile = recalled,
+            ImageUrls = imageUrls,
+            QuotedContent = quotedText,
             AllowProfileUpdate = false
         };
 
         // 8. 执行工作流（@ 事件消息引用原消息回复；全量模式消息按官方约束主动发送）
         await _workflowRunner.RunAsync(ctx, message.IsFullMessage ? null : message.MsgId, ct);
+    }
+
+    /// <summary>
+    /// 解析本轮上下文里的图片与被引用内容：
+    /// 1) 本条附件 / 引用消息随事件下发的图片（直接可用）；
+    /// 2) 只有 ref_msg_idx 时按消息索引从本地历史回溯被引用的那条（正文 + 图片）；
+    /// 3) 仍无图且开启视觉时，按时间窗回溯触发者本人最近一张图（「先发图、再 @ 分析」）。
+    /// </summary>
+    private (List<string> Images, string QuotedText) ResolveContext(IncomingMessage message, DateTimeOffset now)
+    {
+        List<string> images = [.. message.ImageUrls];
+        string quoted = message.QuotedContent;
+
+        // 引用消息只带索引（事件未下发引用内容）→ 本地历史按 msg_idx 回溯
+        if (string.IsNullOrWhiteSpace(quoted) && !string.IsNullOrEmpty(message.RefMsgIdx))
+        {
+            HistoryEntry? entry = _historyStore.FindByMsgIdx(message.GroupOpenId, message.RefMsgIdx);
+            if (entry != null)
+            {
+                quoted = entry.Content;
+                images.AddRange(entry.ImageUrls);
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("引用消息按 msg_idx 回溯到本地历史：{Content}", entry.Content);
+                }
+            }
+        }
+
+        // 仍无图 → 时间窗回溯本人最近一张图
+        if (images.Count == 0)
+        {
+            int seconds = _config.Config.Trigger.ImageLookbackSeconds;
+            if (seconds > 0 && _config.Config.Llm.EnableVision)
+            {
+                List<string> fromHistory = _historyStore.FindRecentImageUrls(
+                    message.GroupOpenId, message.SenderOpenId, TimeSpan.FromSeconds(seconds), now);
+                if (fromHistory.Count > 0 && _logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("触发消息未带图，回溯到本人最近 {Count} 张图（{Seconds}s 窗口内）", fromHistory.Count, seconds);
+                }
+                images.AddRange(fromHistory);
+            }
+        }
+
+        return ([.. images.Distinct(StringComparer.Ordinal)], quoted);
     }
 }

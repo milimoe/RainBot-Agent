@@ -54,7 +54,7 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, SayNoWordsSer
                     return await ReplyTextAsync(msg, meme);
                 }
             }
-            return await ReplyTextAsync(msg, noReply);
+            return await ReplyTextAsync(msg, noReply!); // TryReplyNo 返回 true 时必已赋值
         }
 
         if (fun.EnableReverseAt && msg.IsAtRobot
@@ -214,7 +214,7 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, SayNoWordsSer
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "OSM 图片发送异常");
+            _logger.LogWarning(ex, "OSM 图片发送异常");
         }
         return FunResult.NotHandled;
     }

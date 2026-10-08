@@ -34,6 +34,14 @@ public class ActiveTrigger(RuntimeConfig config, GroupStateManager states, ILogg
             return null;
         }
 
+        // 该群最后一条消息是机器人自己说的 → 不暖群（不接自己的话，避免自言自语式刷屏）。
+        // 判定依据：机器人最后发言时间（SendQueue 发送成功 / 自身消息回显时更新）
+        // 晚于或等于最后一条群消息时间（说明机器人发言后没有任何人接话）。
+        if (state.LastMessageUtc != DateTimeOffset.MinValue && state.LastBotSpeakUtc >= state.LastMessageUtc)
+        {
+            return null;
+        }
+
         // 被动冷却期内不与暖群冲突
         if (state.LastPassiveTriggerUtc + TimeSpan.FromSeconds(cfg.PassiveCooldownSeconds) > now)
         {

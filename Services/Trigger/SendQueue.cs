@@ -22,6 +22,7 @@ public class SendQueue : BackgroundService
     private readonly BotSenderRouter _senderRouter;
     private readonly BotSendStats _sendStats;
     private readonly RuntimeConfig _config;
+    private readonly GroupStateManager _groupStates;
     private readonly ILogger<SendQueue> _logger;
     private readonly ConcurrentDictionary<string, List<DateTimeOffset>> _groupSendWindow = new();
     private readonly BotStatus _botStatus;
@@ -39,11 +40,12 @@ public class SendQueue : BackgroundService
     /// <summary>退避基数（毫秒）：1.5s → 3s → 6s</summary>
     internal const int RetryBackoffBaseMs = 1500;
 
-    public SendQueue(BotSenderRouter senderRouter, BotSendStats sendStats, RuntimeConfig config, ILogger<SendQueue> logger, BotStatus botStatus, WebUiBridge? webUi = null)
+    public SendQueue(BotSenderRouter senderRouter, BotSendStats sendStats, RuntimeConfig config, GroupStateManager groupStates, ILogger<SendQueue> logger, BotStatus botStatus, WebUiBridge? webUi = null)
     {
         _senderRouter = senderRouter;
         _sendStats = sendStats;
         _config = config;
+        _groupStates = groupStates;
         _logger = logger;
         _botStatus = botStatus;
         _webUi = webUi;
@@ -95,6 +97,9 @@ public class SendQueue : BackgroundService
                 switch (outcome)
                 {
                     case SendOutcome.Sent:
+                        // 记录机器人发言时间：供暖群"最后一条消息是自己则不暖群"判定
+                        // （含试聊仿真，保证仿真模式下暖群判定行为一致）
+                        _groupStates.MarkBotSpeak(task.GroupOpenId, DateTimeOffset.UtcNow);
                         continue;
                     case SendOutcome.RateLimited:
                         // 本地 qpm 频控：延迟重试，超过上限丢弃

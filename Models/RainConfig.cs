@@ -53,6 +53,12 @@ public class RainConfig
     public bool DebugMode { get; set; } = false;
 
     /// <summary>
+    /// 思维显示：需先开启 DebugMode。开启后把模型的思维内容（reasoning_content）用 ``` 包起来，
+    /// 与回复内容一起发送，便于直接在群里观察推理过程（仅推理型模型会返回思维内容）。
+    /// </summary>
+    public bool DebugShowReasoning { get; set; } = false;
+
+    /// <summary>
     /// Markdown 回复：开启后所有文本回复以 Markdown 消息（msg_type=2）发送到 QQ 网关，
     /// 而不是纯文本（msg_type=0）。调试模式的统计行同时改为块引用格式「&gt; x tokens, x tools」。
     /// </summary>
@@ -91,21 +97,34 @@ public class LlmConfig
     /// <summary>
     /// 工具轮 max_tokens：需容纳「思考文本 + 工具调用参数 JSON」，
     /// 太小会把多参数调用截断成半截 JSON（当前 7 个内置工具中 admin_set_setting/update_user_profile 有 2~5 个参数）。
-    /// 收口轮不用该值，由 MaxOutputChars 推导。
+    /// 推理型模型的思维链也计入输出 token：预算太小时思考耗尽额度、content 为空（finish_reason=length），
+    /// 表现为「ReAct 循环结束无文本输出」。收口轮共用该值。
     /// </summary>
-    public int ToolRoundMaxTokens { get; set; } = 512;
+    public int ToolRoundMaxTokens { get; set; } = 4096;
 
     /// <summary>输出强制最多行数（超出截断）</summary>
     public int MaxOutputLines { get; set; } = 2;
 
     /// <summary>输出强制最多字符数（超出截断）</summary>
     public int MaxOutputChars { get; set; } = 160;
+
+    /// <summary>
+    /// 视觉识图：开启后，带图消息会把图片（下载后 base64 内联）随多模态请求发给模型。
+    /// 模型/端点不支持图片时建议关闭，否则该轮请求会失败（表现为对该消息不回复）。
+    /// </summary>
+    public bool EnableVision { get; set; } = true;
 }
 
 public class TriggerConfig
 {
     /// <summary>被动触发后的群冷却期（秒），冷却期内无视 @ 消息但仍入队统计</summary>
     public int PassiveCooldownSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// 图片回溯窗口（秒，0 = 关闭）：触发消息本身没带图时，向前回溯**触发者本人**最近一张图并一起识图，
+    /// 覆盖「先发图、再 @ 机器人让它分析」的跟进提问。
+    /// </summary>
+    public int ImageLookbackSeconds { get; set; } = 180;
 
     /// <summary>密度唤醒：时间窗口（分钟）</summary>
     public int DensityWindowMinutes { get; set; } = 1;
@@ -121,6 +140,12 @@ public class TriggerConfig
 
     /// <summary>话题存活时间（分钟）：窗口内有消息且距最后消息不超过该值才可密度唤醒</summary>
     public int TopicAliveMinutes { get; set; } = 10;
+
+    /// <summary>随机插嘴概率（%）：普通群消息（未 @）按此概率触发人设回复，0 = 关闭</summary>
+    public int RandomChatProbability { get; set; } = 5;
+
+    /// <summary>随机插嘴冷却（秒）：同群两次插嘴的最小间隔，与被动冷却相互独立</summary>
+    public int RandomChatCooldownSeconds { get; set; } = 600;
 
     /// <summary>搜索结果本地缓存时长（分钟）</summary>
     public int SearchCacheMinutes { get; set; } = 10;

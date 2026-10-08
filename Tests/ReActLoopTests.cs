@@ -74,12 +74,33 @@ public class ReActLoopTests
             [ChatMessage.System("测试"), ChatMessage.User("hi")],
             new ToolExecutionContext { GroupOpenId = "g", IsAdmin = false, AllowProfileUpdate = false });
 
-        // 达上限后无文本 → 兜底文案，不死循环
-        Assert.Equal("嗯……我暂时想不出怎么接这个话题，等我缓缓 🌧️", result.Text);
+        // 达上限后无文本 → 空文本（由上层静默跳过），不死循环
+        Assert.Equal("", result.Text);
+    }
+
+    [Theory]
+    [InlineData("(empty)")]
+    [InlineData("  (empty)\n")]
+    [InlineData("(empty)。")]         // 句尾多余标点
+    [InlineData("```\n（空）\n```")] // 代码块包裹 + 全角变体：兼容模型自由发挥
+    public async Task 空内容哨兵_归一为空文本(string marker)
+    {
+        // 随机插嘴约定「接不上就输出 (empty)」：哨兵必须被识别为空文本，不能当普通回复发出去
+        ServiceProvider sp = await TestHost.BuildReadyAsync(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(TestHelpers.LlmTextResponse(marker), Encoding.UTF8, "application/json")
+        });
+        var loop = sp.GetRequiredService<ReActLoop>();
+        ReActResult result = await loop.RunAsync(
+            [ChatMessage.System("测试"), ChatMessage.User("hi")],
+            new ToolExecutionContext { GroupOpenId = "g", IsAdmin = false, AllowProfileUpdate = false });
+
+        Assert.False(result.Failed);
+        Assert.Equal("", result.Text);
     }
 
     [Fact]
-    public async Task LLM异常_兜底文案()
+    public async Task LLM异常_返回空文本不编兜底话术()
     {
         HttpResponseMessage Responder(HttpRequestMessage request)
             => new(HttpStatusCode.InternalServerError) { Content = new StringContent("boom") };
@@ -91,7 +112,7 @@ public class ReActLoopTests
             new ToolExecutionContext { GroupOpenId = "g", IsAdmin = false, AllowProfileUpdate = false });
 
         Assert.True(result.Failed);
-        Assert.Equal("嗯……我暂时想不出怎么接这个话题，等我缓缓 🌧️", result.Text);
+        Assert.Equal("", result.Text);
     }
 
     [Fact]
