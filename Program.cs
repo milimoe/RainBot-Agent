@@ -84,7 +84,11 @@ builder.Services.AddSingleton<WorkflowRunner>();
 builder.Services.AddSingleton<AnchorManager>();
 builder.Services.AddSingleton<ProfileRecaller>();
 builder.Services.AddSingleton<ToolRegistry>();
-builder.Services.AddSingleton<ISearchProvider, DuckDuckGoSearchProvider>();
+builder.Services.AddSingleton<BingSearchProvider>();
+builder.Services.AddSingleton<DuckDuckGoSearchProvider>();
+builder.Services.AddSingleton<SearxngSearchProvider>();
+builder.Services.AddSingleton<TavilySearchProvider>();
+builder.Services.AddSingleton<ISearchProvider, ConfiguredSearchProvider>(); // 按 Search.Provider 热切换（tavily 额度用尽自动回退 bing）
 builder.Services.AddSingleton<WebSearchTool>();
 builder.Services.AddSingleton<ProfileTools>();
 builder.Services.AddSingleton<AdminTools>();

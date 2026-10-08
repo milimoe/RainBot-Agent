@@ -125,6 +125,14 @@ public class Database
                 last_error TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS search_usage (
+                provider TEXT NOT NULL,
+                day TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (provider, day)
+            );
             """;
         await cmd.ExecuteNonQueryAsync();
         await MigrateToBotNamespaceAsync(conn);
@@ -723,8 +731,7 @@ public class Database
     }
 
     /// <summary>删除机器人实例（其历史数据保留，只是不再有实例归属）</summary>
-    public async Task DeleteBotInstanceAsync(string id)
-    {
+    public async Task DeleteBotInstanceAsync(string id)    {
         await using SqliteConnection conn = await OpenAsync();
         await using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM bot_instances WHERE id = $id;";
@@ -755,8 +762,7 @@ public class Database
     }
 
     public async Task UpsertBotSendStatsAsync(string botId, long sent, long failed, string? lastError)
-    {
-        await using SqliteConnection conn = await OpenAsync();
+    {        await using SqliteConnection conn = await OpenAsync();
         await using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO bot_send_stats (bot_id, sent, failed, last_error, updated_at)
@@ -771,6 +777,59 @@ public class Database
         cmd.Parameters.AddWithValue("$sent", sent);
         cmd.Parameters.AddWithValue("$failed", failed);
         cmd.Parameters.AddWithValue("$err", lastError ?? "");
+        cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // ---------- 搜索额度（按后端 + 本地日期计数，跨天自动重置） ----------
+
+    /// <summary>取某后端当天的调用次数</summary>
+    public async Task<int> GetSearchUsageAsync(string provider, string day)
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT count FROM search_usage WHERE provider = $p AND day = $d;";
+        cmd.Parameters.AddWithValue("$p", provider);
+        cmd.Parameters.AddWithValue("$d", day);
+        object? value = await cmd.ExecuteScalarAsync();
+        return value == null || value is DBNull ? 0 : Convert.ToInt32(value);
+    }
+
+    /// <summary>调用计数 +1，返回累加后的值</summary>
+    public async Task<int> IncrementSearchUsageAsync(string provider, string day)
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO search_usage (provider, day, count, updated_at)
+            VALUES ($p, $d, 1, $ts)
+            ON CONFLICT(provider, day) DO UPDATE SET
+                count = count + 1,
+                updated_at = excluded.updated_at
+            RETURNING count;
+            """;
+        cmd.Parameters.AddWithValue("$p", provider);
+        cmd.Parameters.AddWithValue("$d", day);
+        cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToString("O"));
+        object? value = await cmd.ExecuteScalarAsync();
+        return value == null || value is DBNull ? 1 : Convert.ToInt32(value);
+    }
+
+    /// <summary>把当天计数直接置为指定值（后端自报额度用尽时标记，避免继续无效调用）</summary>
+    public async Task SetSearchUsageAsync(string provider, string day, int count)
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO search_usage (provider, day, count, updated_at)
+            VALUES ($p, $d, $count, $ts)
+            ON CONFLICT(provider, day) DO UPDATE SET
+                count = excluded.count,
+                updated_at = excluded.updated_at;
+            """;
+        cmd.Parameters.AddWithValue("$p", provider);
+        cmd.Parameters.AddWithValue("$d", day);
+        cmd.Parameters.AddWithValue("$count", count);
         cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToString("O"));
         await cmd.ExecuteNonQueryAsync();
     }

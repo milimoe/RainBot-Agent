@@ -66,6 +66,38 @@ public class RainConfig
 
     /// <summary>机器人自我维护的管理员 OpenID 列表（初始值来自配置，之后由 /admin 指令维护入库）</summary>
     public List<string> AdminOpenIds { get; set; } = [];
+
+    /// <summary>联网搜索配置（web_search 工具后端）</summary>
+    public SearchConfig Search { get; set; } = new();
+}
+
+/// <summary>
+/// 联网搜索（web_search 工具）配置。
+/// 默认 bing：cn.bing.com 国内可直连；duckduckgo 在部分网络不可达；
+/// searxng 适合自建实例；tavily 为商业 API（有每日额度，用尽自动回退 bing）。
+/// </summary>
+public class SearchConfig
+{
+    /// <summary>搜索后端：bing（默认）/ duckduckgo / searxng / tavily</summary>
+    public string Provider { get; set; } = "bing";
+
+    /// <summary>SearXNG 实例基址（Provider=searxng 时必填），如 https://searx.example.com</summary>
+    public string SearxngBaseUrl { get; set; } = "";
+
+    /// <summary>Tavily API Key（tvly- 开头；填写后把 Provider 设为 tavily 即优先使用它）</summary>
+    public string TavilyApiKey { get; set; } = "";
+
+    /// <summary>
+    /// Tavily 每日调用次数上限（按服务器本地日期计，跨天自动重置；0 = 不限制）。
+    /// 达到上限后自动回退 bing，不会因额度耗尽而搜不出结果。
+    /// </summary>
+    public int TavilyDailyLimit { get; set; } = 100;
+
+    /// <summary>单次搜索超时（秒）：网络不通时快速失败，避免拖住整条回复</summary>
+    public int TimeoutSeconds { get; set; } = 15;
+
+    /// <summary>进上下文的搜索结果条数</summary>
+    public int MaxResults { get; set; } = 3;
 }
 
 public class LlmConfig
