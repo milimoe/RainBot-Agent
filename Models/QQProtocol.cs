@@ -284,6 +284,10 @@ public class C2CMessage : IBotMessage
     [JsonPropertyName("attachments")]
     public Attachment[] Attachments { get; set; } = [];
 
+    /// <summary>@ 提及（私聊一般没有，保留字段以兼容异常推送）</summary>
+    [JsonPropertyName("mentions")]
+    public List<Mention> Mentions { get; set; } = [];
+
     [JsonPropertyName("message_type")]
     public int MessageType { get; set; } = 0;
 

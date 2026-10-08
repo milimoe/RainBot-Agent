@@ -171,6 +171,28 @@ public static class OneBotMessage
         return sb.ToString().Trim();
     }
 
+    /// <summary>
+    /// 拼接进上下文的文本：文本段原样，at 段渲染成「@QQ号」（OneBot 事件里没有被 @ 者的昵称，
+    /// 只能给出 QQ 号；@全体成员渲染为「@全体成员」）。Content 仍用 ExtractText 保持纯文本。
+    /// </summary>
+    public static string ExtractContextText(JsonElement message)
+    {
+        System.Text.StringBuilder sb = new();
+        foreach (OneBotSegment seg in Parse(message))
+        {
+            if (seg.Type == TypeText)
+            {
+                sb.Append(GetString(seg, "text"));
+            }
+            else if (seg.Type == TypeAt)
+            {
+                string qq = GetString(seg, "qq");
+                sb.Append(qq.Equals("all", StringComparison.OrdinalIgnoreCase) ? "@全体成员" : $"@{qq}");
+            }
+        }
+        return sb.ToString().Trim();
+    }
+
     /// <summary>拼取图片消息段的直链 URL（部分实现把直链放在 url，部分放在 file）</summary>
     public static List<string> ExtractImageUrls(JsonElement message)
     {

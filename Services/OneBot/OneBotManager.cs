@@ -196,6 +196,7 @@ public class OneBotManager(
             SenderOpenId = senderId,
             Username = username,
             Content = content,
+            ContextText = OneBotMessage.ExtractContextText(evt.Message),
             ImageUrls = imageUrls,
             // 引用（回复）消息：OneBot 用 reply 消息段带被引用消息 id，
             // MsgIdx 存本实现的消息 id（与 reply 段同命名空间），供本地历史按引用回溯

@@ -36,8 +36,14 @@ public class IncomingMessage
     /// <summary>发送者昵称/群名片（官方 API 提供，可能为空）</summary>
     public string? Username { get; init; }
 
-    /// <summary>消息内容（含 <@!xxx> 等富文本标签）</summary>
+    /// <summary>消息内容（含 <@!xxx> 等富文本标签；保留原始形态供逻辑判断用）</summary>
     public required string Content { get; init; }
+
+    /// <summary>
+    /// 进历史与上下文的文本：已把 @ 标签渲染成可读用户名（如「@小明」；@ 机器人自己为「@你」），
+    /// 由各平台在分发层渲染。为空时回退用 Content。
+    /// </summary>
+    public string ContextText { get; init; } = "";
 
     /// <summary>
     /// 图片消息的图片 URL 列表（QQ 官方 = attachments 中 image/* + 引用消息里的图片；OneBot = image 消息段直链）。
@@ -54,9 +60,11 @@ public class IncomingMessage
     /// <summary>被引用消息索引（官方 message_scene.ext 的 ref_msg_idx）</summary>
     public string RefMsgIdx { get; init; } = "";
 
-    /// <summary>展示/入库文本：纯图片消息用 [图片] 占位、纯引用用 [引用消息] 占位，避免空内容进历史与上下文</summary>
-    public string DisplayContent => !string.IsNullOrWhiteSpace(Content)
-        ? Content
+    /// <summary>展示/入库文本：优先用渲染后的 ContextText（@ 已还原成用户名）；
+    /// 纯图片消息用 [图片] 占位、纯引用用 [引用消息] 占位，避免空内容进历史与上下文</summary>
+    public string DisplayContent => !string.IsNullOrWhiteSpace(ContextText)
+        ? ContextText
+        : !string.IsNullOrWhiteSpace(Content) ? Content
         : ImageUrls.Count > 0 ? "[图片]"
         : !string.IsNullOrWhiteSpace(QuotedContent) ? "[引用消息]"
         : "";

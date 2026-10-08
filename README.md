@@ -218,6 +218,8 @@ WarmupScheduler（30s 扫描）──▶ 密度/沉默/频控判定 ──▶ �
 
 **双事件去重（@ 判定权威）**：开启「接收所有消息」后，@ 消息会同时推送 `GROUP_AT_MESSAGE_CREATE` 与 `GROUP_MESSAGE_CREATE`（同 msg_id，官方注明相同 msg_id 可能重复推送）；部分环境下 @ 事件不再单独推送，此时以全量事件 payload 的 **`mentions` 数组（`is_you=true` 即 @ 了本机器人）** 为权威信号，content 中的 @ 标签（新格式 `<@openid>` / 历史格式 `<@!openid>`）作为兜底。分发层按事件类型分别去重，并保证 @ 语义绝不丢失：@ 事件先到则全量事件跳过；全量事件先到则 @ 事件仍补执行风控→指令→触发→工作流（跳过已完成的统计/历史，避免重复计数与重复入库）。机器人 openid 无需配置，自动从 mentions/@ 事件学习。
 
+**@ 提及渲染**：`mentions` 里的 `username` 会用于把正文中的 @ 标签渲染成可读名字（`<@openid>` → `@小明`；@ 机器人自己渲染为 `@你`）后再进历史与上下文，模型因此知道被 @ 的是谁、多人 @ 时也能区分；拿不到 mentions 的异常数据沿用旧的 `@用户` 占位。原始带标签的 `Content` 保留用于逻辑判断（自身 openid 学习、@ 语义判定），互不影响。OneBot 的 at 段渲染为 `@QQ号`（该协议事件里没有被 @ 者的昵称）。
+
 **消息结构（缓存关键）**：`messages[0]=system(A 人设)` → `messages[1]=user(B 工具+C 群画像+D 锚点，静态)` → `messages[2]=user(E 历史，尾部增长)` → `messages[3]=user(F 当前)`。A~D 跨请求前缀不变 → DeepSeek 硬盘缓存命中。
 
 **工具调用（ReAct）**：轮次语义为「工具轮 ≤ `Llm.MaxToolRounds`」+「触顶后 1 次收口轮」。收口轮把 `tools` 原样保留、只把 `tool_choice` 设为 `"none"`（保持输入 token 序列不变，不破坏前缀缓存），让模型基于已拿到的工具结果作答，而不是丢弃结果落兜底句。温度两档：首轮与收口轮用 `Llm.Temperature`（0.9，保人设），工具链中段用 `Llm.ToolTemperature`（0.2，稳参数）。
