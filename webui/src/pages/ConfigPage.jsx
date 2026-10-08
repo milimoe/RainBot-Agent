@@ -9,6 +9,7 @@ const SECTION_TITLES = {
   上下文: '🧠 上下文与缓存',
   风控: '🛡️ 风控与合规',
   随机互动: '🎲 随机互动',
+  搜索: '🔍 联网搜索',
   通用: '⚙️ 通用',
 };
 
@@ -118,13 +119,18 @@ export default function ConfigPage({ onAuthFail }) {
   };
 
   const sections = useMemo(() => {
-    const order = Object.keys(SECTION_TITLES);
     const map = {};
     for (const it of items) {
       const sec = it.meta?.section || '通用';
       (map[sec] = map[sec] || []).push(it);
     }
-    return order.filter((s) => map[s]).map((s) => ({ section: s, title: SECTION_TITLES[s], items: map[s] }));
+    // 已登记的分组按固定顺序在前；后端新增但前端未登记的分组按字典序追加，
+    // 用分组名当标题兜底 —— 后端加新分组时前端不改也能显示出来。
+    const known = Object.keys(SECTION_TITLES).filter((s) => map[s]);
+    const unknown = Object.keys(map)
+      .filter((s) => !SECTION_TITLES[s])
+      .sort();
+    return [...known, ...unknown].map((s) => ({ section: s, title: SECTION_TITLES[s] ?? s, items: map[s] }));
   }, [items]);
 
   const filtered = useMemo(() => {
