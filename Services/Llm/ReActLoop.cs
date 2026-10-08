@@ -8,17 +8,18 @@ namespace RainBot.Services.Llm;
 /// ReAct 循环：模型 → 工具调用 → 执行 → 结果追加尾部 → 继续，直至无工具调用或达轮次上限。
 /// 工具结果只追加在消息尾部（不插入前缀），维持缓存命中。
 /// 轮次上限防死循环；触顶时补一次 tool_choice="none" 的收口请求，让模型基于已有工具结果作答；
-/// 异常兜底为一句符合人设的短句。
+/// 异常/空输出返回空文本，由调用方静默跳过——绝不编造「想不出怎么接话题」之类的兜底话术。
 /// </summary>
-public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, ToolRegistry toolRegistry, ILogger<ReActLoop> logger)
+public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, ToolRegistry toolRegistry, ReasoningRecorder reasoningRecorder, ILogger<ReActLoop> logger)
 {
     private readonly RuntimeConfig _config = config;
     private readonly DeepSeekClient _deepSeekClient = deepSeekClient;
     private readonly ToolRegistry _toolRegistry = toolRegistry;
+    private readonly ReasoningRecorder _reasoningRecorder = reasoningRecorder;
     private readonly ILogger<ReActLoop> _logger = logger;
 
-    /// <summary>执行一次完整工作流，返回最终回复文本</summary>
-    public async Task<ReActResult> RunAsync(IReadOnlyList<ChatMessage> messages, ToolExecutionContext context, string fallback = "嗯……我暂时想不出怎么接这个话题，等我缓缓 🌧️", CancellationToken ct = default)
+    /// <summary>执行一次完整工作流，返回最终回复文本；无内容可说时 Text 为空串，由调用方静默跳过</summary>
+    public async Task<ReActResult> RunAsync(IReadOnlyList<ChatMessage> messages, ToolExecutionContext context, CancellationToken ct = default)
     {
         LlmConfig llm = _config.Config.Llm;
         int maxRounds = Math.Max(1, llm.MaxToolRounds);
@@ -26,6 +27,8 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
         List<ToolDef> tools = _toolRegistry.GetToolDefs();
         Usage? lastUsage = null;
         string? lastText = null;
+        string? lastFinishReason = null;
+        string? lastReasoning = null; // 最后一次非空思维链（调试模式记录用）
         int toolCallCount = 0;
         bool awaitingFinalAnswer = false; // true = 上一轮还在调工具，结果尚未被消化
 
@@ -50,11 +53,17 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
             catch (Exception ex)
             {
                 _logger.LogError(ex, "LLM 调用失败（round={Round}）", round);
-                return new ReActResult { Text = fallback, Usage = lastUsage, ToolCallCount = toolCallCount, Failed = true };
+                RecordIfDebug(context, lastReasoning, lastFinishReason, lastUsage);
+                return new ReActResult { Text = "", Reasoning = lastReasoning, Usage = lastUsage, ToolCallCount = toolCallCount, Failed = true };
             }
 
             lastUsage = result.Usage;
             lastText = result.Message.Content;
+            lastFinishReason = result.FinishReason;
+            if (!string.IsNullOrWhiteSpace(result.Message.ReasoningContent))
+            {
+                lastReasoning = result.Message.ReasoningContent;
+            }
 
             if (result.Message.ToolCalls is { Count: > 0 })
             {
@@ -113,17 +122,60 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
             }
         }
 
-        if (string.IsNullOrWhiteSpace(lastText))
+        if (TryExtractEmptyMarker(lastText))
         {
-            _logger.LogWarning("ReAct 循环结束后无文本输出（rounds={Max}），使用兜底文案", maxRounds);
-            lastText = fallback;
+            _logger.LogDebug("模型按约定输出空内容哨兵 (empty)，按无内容处理（静默跳过）");
+            lastText = "";
         }
 
-        return new ReActResult { Text = lastText, Usage = lastUsage, ToolCallCount = toolCallCount, Failed = false };
+        if (string.IsNullOrWhiteSpace(lastText))
+        {
+            _logger.LogWarning(
+                "ReAct 循环结束后无文本输出（maxRounds={Max}，finish_reason={Finish}），返回空文本由上层静默跳过",
+                maxRounds, lastFinishReason ?? "unknown");
+            lastText = "";
+        }
+
+        RecordIfDebug(context, lastReasoning, lastFinishReason, lastUsage);
+        return new ReActResult { Text = lastText, Reasoning = lastReasoning, Usage = lastUsage, ToolCallCount = toolCallCount, Failed = false };
     }
 
-    /// <summary>收口轮 max_tokens：按输出字符上限推导（中文约 0.8~1 token/字，留一倍余量）</summary>
-    private static int ClosingMaxTokens(LlmConfig llm) => Math.Clamp(llm.MaxOutputChars * 2, 128, 1024);
+    /// <summary>
+    /// 空内容哨兵识别：随机插嘴提示模型「接不上就输出 (empty)」，命中则归一为空文本，
+    /// 交由「无内容 → 静默跳过」处理。兼容模型写出的全角/方括号变体（如 （空））、
+    /// 代码块包裹与句尾多余标点。
+    /// </summary>
+    private static bool TryExtractEmptyMarker(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+        string t = text.Trim().Trim('`', '"', '\'', '“', '”').Trim()
+            .TrimEnd('。', '．', '.', '！', '!', '~', '～', '，', ',', '\n', '\r', ' ');
+        return t.ToLowerInvariant() is "(empty)" or "（empty）" or "[empty]" or "【empty】"
+            or "(空)" or "（空）" or "[空]" or "【空】";
+    }
+
+    /// <summary>调试模式下按群记录最后一次思维链，供 /admin reasoning 查看</summary>
+    private void RecordIfDebug(ToolExecutionContext context, string? reasoning, string? finishReason, Usage? usage)
+    {
+        if (!_config.Config.DebugMode || string.IsNullOrWhiteSpace(reasoning))
+        {
+            return;
+        }
+        _reasoningRecorder.Record(new ReasoningSnapshot
+        {
+            TimeUtc = DateTimeOffset.UtcNow,
+            GroupOpenId = context.GroupOpenId,
+            FinishReason = finishReason,
+            CompletionTokens = usage?.CompletionTokens ?? 0,
+            Text = reasoning
+        });
+    }
+
+    /// <summary>收口轮 max_tokens：与工具轮共用 ToolRoundMaxTokens（推理型模型的思维链计入输出 token，预算必须给足）</summary>
+    private static int ClosingMaxTokens(LlmConfig llm) => Math.Max(128, llm.ToolRoundMaxTokens);
 
     private static string Truncate(string text, int max) => text.Length <= max ? text : text[..max] + "…";
 }
@@ -132,6 +184,9 @@ public class ReActResult
 {
     public required string Text { get; init; }
     public Usage? Usage { get; init; }
+
+    /// <summary>本轮最后一次非空思维链（仅推理型模型返回；调试模式「思维显示」用，不参与上下文）</summary>
+    public string? Reasoning { get; init; }
 
     /// <summary>本轮工作流实际执行的工具调用次数（0 = 未调用工具）</summary>
     public int ToolCallCount { get; init; }

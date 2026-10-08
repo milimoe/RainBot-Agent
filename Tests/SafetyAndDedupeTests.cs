@@ -58,6 +58,21 @@ public class OutputFilterTests
     }
 
     [Fact]
+    public void 兜底话术命中不发送()
+    {
+        ServiceProvider sp = TestHost.Build().Provider;
+        var filter = sp.GetRequiredService<OutputFilter>();
+
+        // 模型自己模仿出的兜底话术（含变体）→ 静默跳过不发送
+        Assert.Null(filter.Filter("嗯……我暂时想不出怎么接这个话题，等我缓缓 🌧️"));
+        Assert.Null(filter.Filter("这个话题我接不上，容我想想"));
+        Assert.Null(filter.Filter("让我缓缓再说 🌧️"));
+
+        // 正常回复不受影响
+        Assert.NotNull(filter.Filter("今天雨下得真大，出门记得带伞"));
+    }
+
+    [Fact]
     public void 疑似openid被替换()
     {
         ServiceProvider sp = TestHost.Build().Provider;

@@ -34,6 +34,10 @@ public class Author
     /// <summary>群名片/昵称（官方 API 提供，可能为空）</summary>
     [JsonPropertyName("username")]
     public string Username { get; set; } = "";
+
+    /// <summary>是否为机器人自己（全量消息回显机器人消息时为 true）</summary>
+    [JsonPropertyName("bot")]
+    public bool IsBot { get; set; }
 }
 
 public class Attachment
@@ -105,6 +109,58 @@ public interface IBotMessage
     public string Timestamp { get; }
     public string OpenId { get; }
     public string AuthorOpenId { get; }
+
+    /// <summary>消息内容类型：0=普通文本 / 3=结构化卡片 / 101=并行消息 / 102=聊天记录 / 103=引用消息</summary>
+    public int MessageType { get; }
+
+    /// <summary>消息元素（引用/聊天记录消息在此携带被引用内容与附件）</summary>
+    public MsgElement[] MsgElements { get; }
+
+    /// <summary>消息场景（ext 含 msg_idx / ref_msg_idx / auth_token）</summary>
+    public MessageScene? Scene { get; }
+}
+
+/// <summary>
+/// 消息场景：官方 ext 为 key=value 字符串数组，引用场景下含
+/// msg_idx（本条消息索引）、ref_msg_idx（被引用消息索引）、auth_token（鉴权令牌）。
+/// </summary>
+public class MessageScene
+{
+    [JsonPropertyName("source")]
+    public string Source { get; set; } = "";
+
+    [JsonPropertyName("ext")]
+    public string[] Ext { get; set; } = [];
+}
+
+/// <summary>
+/// 消息元素：message_type=103（引用消息）/102（聊天记录）时承载被引用内容。
+/// 可递归嵌套（msg_elements 内还有 msg_elements）。
+/// </summary>
+public class MsgElement
+{
+    /// <summary>该元素对应的被引用消息索引</summary>
+    [JsonPropertyName("msg_idx")]
+    public string MsgIdx { get; set; } = "";
+
+    [JsonPropertyName("author")]
+    public Author? Author { get; set; }
+
+    /// <summary>该元素的消息内容类型（含义同上，103 = 其本身也是引用）</summary>
+    [JsonPropertyName("message_type")]
+    public int MessageType { get; set; }
+
+    /// <summary>消息正文内容（被引用的文本）</summary>
+    [JsonPropertyName("content")]
+    public string Content { get; set; } = "";
+
+    /// <summary>该元素携带的附件（被引用的图片等）</summary>
+    [JsonPropertyName("attachments")]
+    public Attachment[] Attachments { get; set; } = [];
+
+    /// <summary>嵌套消息元素（递归结构）</summary>
+    [JsonPropertyName("msg_elements")]
+    public MsgElement[] MsgElements { get; set; } = [];
 }
 
 /// <summary>群 @ 机器人消息（GROUP_AT_MESSAGE_CREATE）</summary>
@@ -130,6 +186,15 @@ public class GroupAtMessage : IBotMessage
 
     [JsonPropertyName("mentions")]
     public List<Mention> Mentions { get; set; } = [];
+
+    [JsonPropertyName("message_type")]
+    public int MessageType { get; set; } = 0;
+
+    [JsonPropertyName("msg_elements")]
+    public MsgElement[] MsgElements { get; set; } = [];
+
+    [JsonPropertyName("message_scene")]
+    public MessageScene? Scene { get; set; }
 
     [JsonIgnore]
     public string OpenId => GroupOpenId;
@@ -175,6 +240,15 @@ public class GroupMessage : IBotMessage
     [JsonPropertyName("mentions")]
     public List<Mention> Mentions { get; set; } = [];
 
+    [JsonPropertyName("message_type")]
+    public int MessageType { get; set; } = 0;
+
+    [JsonPropertyName("msg_elements")]
+    public MsgElement[] MsgElements { get; set; } = [];
+
+    [JsonPropertyName("message_scene")]
+    public MessageScene? Scene { get; set; }
+
     [JsonIgnore]
     public string OpenId => GroupOpenId;
 
@@ -209,6 +283,15 @@ public class C2CMessage : IBotMessage
 
     [JsonPropertyName("attachments")]
     public Attachment[] Attachments { get; set; } = [];
+
+    [JsonPropertyName("message_type")]
+    public int MessageType { get; set; } = 0;
+
+    [JsonPropertyName("msg_elements")]
+    public MsgElement[] MsgElements { get; set; } = [];
+
+    [JsonPropertyName("message_scene")]
+    public MessageScene? Scene { get; set; }
 
     [JsonIgnore]
     public string OpenId => Author.UserOpenId;

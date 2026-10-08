@@ -159,6 +159,69 @@ public class BotInstanceStore
         _logger.LogInformation("实例 {BotId} 已自动学习自身身份：{SelfId}", botId, selfId);
     }
 
+    // ---------- 实例管理员（按机器人维护：QQ 官方 = openid，OneBot11 = QQ 号） ----------
+
+    /// <summary>
+    /// 判定某实例的管理员：实例管理员列表命中，或（兼容旧部署）全局 AdminOpenIds 命中。
+    /// 发送者 ID 与实例同命名空间，直接字符串比对。
+    /// </summary>
+    public async Task<bool> IsAdminAsync(string botId, string senderId)
+    {
+        if (string.IsNullOrWhiteSpace(senderId))
+        {
+            return false;
+        }
+        BotInstance? instance = Get(botId);
+        if (instance is { Admins.Count: > 0 } && instance.Admins.Contains(senderId))
+        {
+            return true;
+        }
+        return await _config.IsAdminAsync(senderId);
+    }
+
+    /// <summary>添加实例管理员（已存在则幂等返回 null）；返回错误消息或 null</summary>
+    public async Task<string?> AddAdminAsync(string botId, string adminId)
+    {
+        if (string.IsNullOrWhiteSpace(adminId))
+        {
+            return "管理员 ID 不能为空。";
+        }
+        BotInstance? instance = Get(botId);
+        if (instance == null)
+        {
+            return $"实例不存在：{botId}";
+        }
+        adminId = adminId.Trim();
+        if (instance.Admins.Contains(adminId))
+        {
+            return null;
+        }
+        instance.Admins.Add(adminId);
+        await PersistInstanceAsync(instance);
+        return null;
+    }
+
+    /// <summary>移除实例管理员（不存在也幂等）；返回错误消息或 null</summary>
+    public async Task<string?> RemoveAdminAsync(string botId, string adminId)
+    {
+        BotInstance? instance = Get(botId);
+        if (instance == null)
+        {
+            return $"实例不存在：{botId}";
+        }
+        if (instance.Admins.Remove(adminId.Trim()))
+        {
+            await PersistInstanceAsync(instance);
+        }
+        return null;
+    }
+
+    /// <summary>落库但不触发 InstancesChanged（管理员增减不需要重启网关）</summary>
+    private async Task PersistInstanceAsync(BotInstance instance)
+    {
+        await _db.UpsertBotInstanceAsync(instance.Id, instance.Name, instance.Platform.ToString(), instance.Enabled, SerializeConfig(instance));
+    }
+
     // ---------- 内部 ----------
 
     private async Task ReloadLockedAsync()
@@ -180,6 +243,7 @@ public class BotInstanceStore
                 if (dto != null)
                 {
                     instance.PersonaPath = dto.PersonaPath ?? "";
+                    instance.Admins = dto.Admins ?? [];
                     instance.Qq = dto.Qq ?? new QqOfficialConfig();
                     instance.OneBot = dto.OneBot ?? new OneBotConfig();
                 }
@@ -229,6 +293,7 @@ public class BotInstanceStore
     private static string SerializeConfig(BotInstance instance) => JsonSerializer.Serialize(new BotInstanceConfigDto
     {
         PersonaPath = instance.PersonaPath,
+        Admins = instance.Admins,
         Qq = instance.Qq,
         OneBot = instance.OneBot
     }, JsonOptions);
@@ -266,6 +331,7 @@ public class BotInstanceStore
     private sealed class BotInstanceConfigDto
     {
         public string? PersonaPath { get; set; }
+        public List<string>? Admins { get; set; }
         public QqOfficialConfig? Qq { get; set; }
         public OneBotConfig? OneBot { get; set; }
     }

@@ -31,6 +31,13 @@ public class BotInstance
     /// <summary>人设文件路径（留空用全局 Persona/persona.md；填写则该实例独立人设）</summary>
     public string PersonaPath { get; set; } = "";
 
+    /// <summary>
+    /// 本实例的管理员列表（可用全部 /admin 指令）。
+    /// ID 命名空间随平台：QQ 官方 = 群内 openid（同一 QQ 用户在不同机器人下 openid 不同），
+    /// OneBot11 = QQ 号。旧版全局 AdminOpenIds 仍作为兜底兼容。
+    /// </summary>
+    public List<string> Admins { get; set; } = [];
+
     /// <summary>QQ 官方平台配置</summary>
     public QqOfficialConfig Qq { get; set; } = new();
 

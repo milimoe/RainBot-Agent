@@ -10,9 +10,9 @@ using Xunit;
 namespace RainBot.Tests;
 
 /// <summary>
-/// 暖群静默：群静默期触发暖群但 LLM 无内容可说时，不应发送
-/// 「嗯……我暂时想不出怎么接这个话题」这类被动兜底话术（保持安静，
-/// 等冷却后重试）；被动 @/私聊场景保留兜底（保证有回应）。
+/// 静默跳过：任何触发类型（暖群/随机插嘴/被动 @/私聊）LLM 无内容可说时，
+/// 都不应发送「嗯……我暂时想不出怎么接这个话题」这类兜底话术，保持安静
+/// （暖群等冷却后重试）。
 /// </summary>
 public class WarmupSilenceTests
 {
@@ -78,9 +78,9 @@ public class WarmupSilenceTests
     }
 
     [Fact]
-    public async Task 被动AT_LLM空输出_仍发默认兜底()
+    public async Task 被动AT_LLM空输出_同样静默不发送()
     {
-        // 被动 @ 场景保持原行为：无内容可说时发「想不出怎么接话题」兜底，保证用户有回应
+        // 被动 @ 场景同样不发兜底话术：无内容可说就静默略过
         ServiceProvider sp = await TestHost.BuildReadyAsync(_ => LlmResponse(""));
         var runner = sp.GetRequiredService<WorkflowRunner>();
 
@@ -93,7 +93,7 @@ public class WarmupSilenceTests
             SenderOpenId = "ABCDEF1234567890ABCDEF1234567890"
         }, "msg_id_1");
 
-        Assert.True(sent);
+        Assert.False(sent);
     }
 
     [Fact]

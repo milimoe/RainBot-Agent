@@ -17,7 +17,8 @@ public class DeepSeekClient(RuntimeConfig config, IHttpClientFactory httpClientF
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new ChatMessageConverter() }
     };
 
     /// <summary>发起一次对话（含工具），返回助手回复与用量统计</summary>
@@ -71,6 +72,16 @@ public class DeepSeekClient(RuntimeConfig config, IHttpClientFactory httpClientF
             throw new LlmException("DeepSeek API 返回无消息内容");
         }
 
+        string? finishReason = chatResponse.Choices[0].FinishReason;
+        if (string.IsNullOrWhiteSpace(message.Content) && message.ToolCalls is not { Count: > 0 })
+        {
+            // 空回复诊断：推理型模型的思维链计入输出 token，max_tokens 太小时预算被思考耗尽，
+            // content 为空且 finish_reason=length——表现为「有回复但内容为空」。
+            _logger.LogWarning(
+                "LLM 空回复（finish_reason={Finish}，output={Out} tokens，reasoning={ReasoningLen} 字）：若 finish_reason=length 说明输出预算被思维链耗尽，请调大 Llm.ToolRoundMaxTokens",
+                finishReason ?? "unknown", chatResponse.Usage?.CompletionTokens ?? 0, message.ReasoningContent?.Length ?? 0);
+        }
+
         if (_logger.IsEnabled(LogLevel.Debug))
         {
             Usage? u = chatResponse.Usage;
@@ -83,7 +94,8 @@ public class DeepSeekClient(RuntimeConfig config, IHttpClientFactory httpClientF
         {
             Message = message,
             Usage = chatResponse.Usage,
-            RawUsage = responseBody
+            RawUsage = responseBody,
+            FinishReason = finishReason
         };
     }
 
@@ -182,7 +194,12 @@ public class BalanceInfo
 /// <summary>LLM 调用异常</summary>
 public class LlmException(string message) : Exception(message);
 
-/// <summary>对话消息（序列化顺序固定：role → content → tool_calls → tool_call_id）</summary>
+/// <summary>
+/// 对话消息（序列化顺序固定：role → content → tool_calls → tool_call_id → reasoning_content；
+/// reasoning_content 仅响应反序列化，请求中恒为 null 不序列化）。
+/// content 由 ChatMessageConverter 输出：无 ContentParts 时为字符串（与历史请求体完全一致，保前缀缓存），
+/// 有 ContentParts 时为视觉格式的块数组（文本 + 图片）。
+/// </summary>
 public class ChatMessage
 {
     [JsonPropertyName("role")]
@@ -197,9 +214,176 @@ public class ChatMessage
     [JsonPropertyName("tool_call_id")]
     public string? ToolCallId { get; set; }
 
+    /// <summary>推理型模型的思维链（仅响应中出现；用于空回复诊断，不参与对话）</summary>
+    [JsonPropertyName("reasoning_content")]
+    public string? ReasoningContent { get; set; }
+
+    /// <summary>多模态内容块（仅触发消息带图时使用；非空则 content 序列化为块数组）</summary>
+    [JsonIgnore]
+    public List<ContentPart>? ContentParts { get; set; }
+
     public static ChatMessage System(string content) => new() { Role = "system", Content = content };
     public static ChatMessage User(string content) => new() { Role = "user", Content = content };
+
+    /// <summary>带多模态内容块的消息（文本块 + 图片块）</summary>
+    public static ChatMessage UserWithParts(List<ContentPart> parts) => new() { Role = "user", ContentParts = parts };
     public static ChatMessage ToolResult(string toolCallId, string content) => new() { Role = "tool", ToolCallId = toolCallId, Content = content };
+}
+
+/// <summary>多模态内容块（OpenAI 兼容视觉格式）：text 或 image_url</summary>
+public class ContentPart
+{
+    [JsonPropertyName("type")]
+    public required string Type { get; set; }
+
+    [JsonPropertyName("text")]
+    public string? Text { get; set; }
+
+    [JsonPropertyName("image_url")]
+    public ImageUrlPart? ImageUrl { get; set; }
+
+    public static ContentPart TextPart(string text) => new() { Type = "text", Text = text };
+    public static ContentPart ImagePart(string url) => new() { Type = "image_url", ImageUrl = new ImageUrlPart { Url = url } };
+}
+
+public class ImageUrlPart
+{
+    [JsonPropertyName("url")]
+    public required string Url { get; set; }
+}
+
+/// <summary>
+/// ChatMessage 专用序列化：手写以精确控制 content 的两种形态与字段顺序
+/// （role → content → tool_calls → tool_call_id → reasoning_content），
+/// 保证纯文本请求体与改造前逐字节一致，不扰动前缀缓存命中。
+/// </summary>
+public class ChatMessageConverter : JsonConverter<ChatMessage>
+{
+    public override ChatMessage Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartObject)
+        {
+            throw new JsonException("ChatMessage 应为 JSON 对象");
+        }
+        ChatMessage message = new() { Role = "" };
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject)
+            {
+                return message;
+            }
+            if (reader.TokenType != JsonTokenType.PropertyName)
+            {
+                throw new JsonException();
+            }
+            string property = reader.GetString() ?? "";
+            reader.Read(); // 移到属性值
+            switch (property)
+            {
+                case "role":
+                    message.Role = reader.GetString() ?? "";
+                    break;
+                case "content":
+                    message.Content = ReadContent(ref reader);
+                    break;
+                case "tool_calls":
+                    message.ToolCalls = reader.TokenType == JsonTokenType.Null
+                        ? null
+                        : JsonSerializer.Deserialize<List<ChatToolCall>>(ref reader, options);
+                    break;
+                case "tool_call_id":
+                    message.ToolCallId = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
+                    break;
+                case "reasoning_content":
+                    message.ReasoningContent = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
+                    break;
+                default:
+                    reader.Skip();
+                    break;
+            }
+        }
+        throw new JsonException("ChatMessage JSON 未正常结束");
+    }
+
+    /// <summary>响应侧 content：正常为字符串；防御性兼容块数组（拼接文本块）</summary>
+    private static string? ReadContent(ref Utf8JsonReader reader)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            return reader.GetString();
+        }
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            return null;
+        }
+        System.Text.StringBuilder sb = new();
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.StartObject)
+            {
+                continue;
+            }
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+            {
+                if (reader.TokenType == JsonTokenType.PropertyName && reader.GetString() == "text")
+                {
+                    reader.Read();
+                    if (reader.TokenType == JsonTokenType.String)
+                    {
+                        sb.Append(reader.GetString());
+                    }
+                }
+            }
+        }
+        return sb.ToString();
+    }
+
+    public override void Write(Utf8JsonWriter writer, ChatMessage value, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("role", value.Role);
+        if (value.ContentParts is { Count: > 0 })
+        {
+            writer.WritePropertyName("content");
+            writer.WriteStartArray();
+            foreach (ContentPart part in value.ContentParts)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("type", part.Type);
+                if (part.Text != null)
+                {
+                    writer.WriteString("text", part.Text);
+                }
+                if (part.ImageUrl != null)
+                {
+                    writer.WritePropertyName("image_url");
+                    writer.WriteStartObject();
+                    writer.WriteString("url", part.ImageUrl.Url);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        }
+        else if (value.Content != null)
+        {
+            writer.WriteString("content", value.Content);
+        }
+        if (value.ToolCalls is { Count: > 0 })
+        {
+            writer.WritePropertyName("tool_calls");
+            JsonSerializer.Serialize(writer, value.ToolCalls, options);
+        }
+        if (value.ToolCallId != null)
+        {
+            writer.WriteString("tool_call_id", value.ToolCallId);
+        }
+        if (value.ReasoningContent != null)
+        {
+            writer.WriteString("reasoning_content", value.ReasoningContent);
+        }
+        writer.WriteEndObject();
+    }
 }
 
 public class ChatToolCall
@@ -287,6 +471,10 @@ public class ChatChoice
 {
     [JsonPropertyName("message")]
     public ChatMessage? Message { get; set; }
+
+    /// <summary>结束原因：stop（正常结束）/ length（max_tokens 截断）/ tool_calls 等</summary>
+    [JsonPropertyName("finish_reason")]
+    public string? FinishReason { get; set; }
 }
 
 /// <summary>DeepSeek 用量（缓存命中/未命中为顶层字段）</summary>
@@ -314,4 +502,7 @@ public class ChatResult
     public required ChatMessage Message { get; init; }
     public Usage? Usage { get; init; }
     public string? RawUsage { get; init; }
+
+    /// <summary>结束原因：stop / length / tool_calls；null = 响应未携带</summary>
+    public string? FinishReason { get; init; }
 }

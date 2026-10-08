@@ -29,6 +29,11 @@ public class GroupStateManager
         DateTimeOffset now = message.ReceivedAt;
         state.LastMessageUtc = now;
         state.IsPrivate = message.IsPrivate;
+        if (message.IsFromBot)
+        {
+            // 机器人自己的消息（全量模式回显）：记录发言时间，供暖群"最后一条是自己"判定
+            MarkBotSpeak(message.GroupOpenId, now);
+        }
         state.DensityWindow.Add(now);
         state.TotalMessages++;
         if (message.IsAdmin)
@@ -44,6 +49,19 @@ public class GroupStateManager
             // 首次加载静默状态
             GroupProfile? profile = await _db.GetGroupProfileAsync(message.GroupOpenId);
             state.Muted = profile?.Muted ?? false;
+        }
+    }
+
+    /// <summary>
+    /// 记录一次机器人发言（SendQueue 发送成功 / 回显识别时调用）。
+    /// 单调递增：只前进不回退，避免"发送完成"与"回显到达"两个并发标记相互覆盖造成时间倒退。
+    /// </summary>
+    public void MarkBotSpeak(string groupOpenId, DateTimeOffset time)
+    {
+        GroupState state = GetOrCreate(groupOpenId);
+        if (time > state.LastBotSpeakUtc)
+        {
+            state.LastBotSpeakUtc = time;
         }
     }
 
@@ -107,6 +125,12 @@ public class GroupState
     /// <summary>最后一条群消息时间（静默检测）</summary>
     public DateTimeOffset LastMessageUtc { get; set; } = DateTimeOffset.MinValue;
 
+    /// <summary>
+    /// 机器人最后一次在该群发言的时间（SendQueue 发送成功 / 自身消息回显时更新）。
+    /// 暖群判定：该时间 ≥ LastMessageUtc 说明最后一条消息是自己 → 不暖群（不接自己的话）。
+    /// </summary>
+    public DateTimeOffset LastBotSpeakUtc { get; set; } = DateTimeOffset.MinValue;
+
     /// <summary>最后一条管理员发言时间（沉默唤醒"无管理员发言"条件）</summary>
     public DateTimeOffset LastAdminMessageUtc { get; set; } = DateTimeOffset.MinValue;
 
@@ -118,6 +142,9 @@ public class GroupState
 
     /// <summary>被动触发冷却：上次被动响应时间</summary>
     public DateTimeOffset LastPassiveTriggerUtc { get; set; } = DateTimeOffset.MinValue;
+
+    /// <summary>随机插嘴冷却：上次插嘴触发时间（与被动冷却独立）</summary>
+    public DateTimeOffset LastRandomChatUtc { get; set; } = DateTimeOffset.MinValue;
 
     /// <summary>最近 1 小时主动发言时间戳（滑动，频控）</summary>
     public List<DateTimeOffset> ActiveWindow { get; } = [];

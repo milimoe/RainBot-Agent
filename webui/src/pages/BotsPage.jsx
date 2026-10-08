@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { Badge, Toggle, toast } from '../components/ui.jsx';
-import { IconCopy, IconPlus, IconRobot } from '../components/Icons.jsx';
+import { IconCopy, IconPlus, IconRobot, IconX } from '../components/Icons.jsx';
 import { QqMenuCard, QqPanelsCard } from '../components/QqMenuPanel.jsx';
 
 const PLATFORMS = [
@@ -16,6 +16,7 @@ function emptyForm() {
     platform: 'QqOfficial',
     enabled: true,
     personaPath: '',
+    admins: [],
     qq: { appId: '', secret: '', useSandbox: false, selfOpenId: '' },
     oneBot: {
       selfQq: '',
@@ -36,6 +37,7 @@ function toForm(b) {
     platform: b.platform || 'QqOfficial',
     enabled: b.enabled !== false,
     personaPath: b.personaPath || '',
+    admins: Array.isArray(b.admins) ? b.admins : [],
     qq: { ...base.qq, ...(b.qq || {}) },
     oneBot: {
       selfQq: b.oneBot?.selfQq || '',
@@ -87,6 +89,67 @@ function Channel({ title, checked, onToggle, children }) {
         <Toggle checked={checked} onChange={onToggle} />
       </div>
       {checked ? <div className="grid grid-cols-2 gap-3">{children}</div> : null}
+    </div>
+  );
+}
+
+/** 本实例管理员编辑（随实例表单一并保存）：QQ 官方填群内 openid，OneBot11 填 QQ 号 */
+function BotAdminsCard({ form, saved }) {
+  const [input, setInput] = useState('');
+  const isOneBot = form.platform === 'OneBot11';
+
+  const add = () => {
+    const id = input.trim();
+    if (!id || form.admins.includes(id)) {
+      setInput('');
+      return;
+    }
+    saved('admins', [...form.admins, id]);
+    setInput('');
+  };
+
+  const remove = (id) => {
+    saved('admins', form.admins.filter((a) => a !== id));
+  };
+
+  return (
+    <div className="rounded-xl border border-qq-border bg-white p-4">
+      <div className="mb-3 text-[13px] font-medium">管理员</div>
+      <div className="mb-2.5 flex flex-wrap gap-1.5">
+        {form.admins.length === 0 && (
+          <span className="text-xs text-qq-sub">暂无管理员（与群管理员无关，本实例管理员可用全部 /admin 指令）</span>
+        )}
+        {form.admins.map((id) => (
+          <span key={id} className="flex items-center gap-1.5 rounded-full bg-qq-bg px-2.5 py-1 font-mono text-xs">
+            {id}
+            <button className="text-qq-sub hover:text-qq-red" onClick={() => remove(id)}>
+              <IconX size={11} />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())}
+          placeholder={isOneBot ? '粘贴管理员 QQ 号…' : '粘贴群友 OpenID…'}
+          className="w-full rounded-md border border-qq-border px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-qq-blue"
+        />
+        <button
+          className="flex shrink-0 items-center gap-1 rounded-md bg-qq-blue px-3 py-1.5 text-xs text-white hover:bg-qq-blue-deep disabled:opacity-40"
+          disabled={!input.trim()}
+          onClick={add}
+        >
+          <IconPlus size={12} /> 添加
+        </button>
+      </div>
+      <div className="mt-2 text-[11px] leading-snug text-qq-sub">
+        {isOneBot
+          ? 'OneBot11 实例：管理员使用 QQ 号匹配（即消息里的 sender user_id）。'
+          : 'QQ 官方实例：管理员使用该机器人群内的 openid 匹配——同一 QQ 用户在不同机器人下 openid 不同，需分别配置。也可在群内用 /admin admin add 添加。'}
+        改动需点右上角「保存」生效。
+      </div>
     </div>
   );
 }
@@ -304,6 +367,8 @@ export default function BotsPage() {
                 </Field>
               </div>
             </div>
+
+            <BotAdminsCard form={form} saved={saved} />
 
             {isOneBot ? (
               <>

@@ -53,6 +53,8 @@ public static class TestHost
         services.AddSingleton<RainBot.Services.Tools.ToolCallRecorder>();
         services.AddSingleton<ToolRegistry>();
         services.AddSingleton<DeepSeekClient>();
+        services.AddSingleton<ReasoningRecorder>();
+        services.AddSingleton<VisionImageLoader>();
         services.AddSingleton<ReActLoop>();
         services.AddSingleton<InputFilter>();
         services.AddSingleton<OutputFilter>();
@@ -141,7 +143,7 @@ public class FakeHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage
 public static class TestHelpers
 {
     /// <summary>构造一条入站群消息</summary>
-    public static IncomingMessage Msg(string group, string sender, string content, bool isAt = false, string? msgId = null, bool isAdmin = false, string? username = null) => new()
+    public static IncomingMessage Msg(string group, string sender, string content, bool isAt = false, string? msgId = null, bool isAdmin = false, string? username = null, DateTimeOffset? msgTime = null) => new()
     {
         MsgId = msgId ?? Guid.NewGuid().ToString("N"),
         GroupOpenId = group,
@@ -150,7 +152,7 @@ public static class TestHelpers
         Content = content,
         IsAtRobot = isAt,
         IsAdmin = isAdmin,
-        ReceivedAt = DateTimeOffset.UtcNow
+        ReceivedAt = msgTime ?? DateTimeOffset.UtcNow
     };
 
     public static string LlmTextResponse(string content, int hit = 90, int miss = 10) => JsonSerializer.Serialize(new

@@ -141,7 +141,8 @@ public class RuntimeConfig
         return result;
     }
 
-    /// <summary>管理员 OpenID 列表（配置 + 数据库动态维护）</summary>
+    /// <summary>管理员 OpenID 列表（配置 + 数据库动态维护）。
+    /// 旧版全局管理员：管理员已改为按机器人实例维护（BotInstanceStore），此列表保留只读兼容兜底。</summary>
     public async Task<List<string>> GetAdminOpenIdsAsync()
     {
         List<string> result = [.. _config.AdminOpenIds];
@@ -155,9 +156,9 @@ public class RuntimeConfig
 
     public async Task<bool> IsAdminAsync(string openId) => (await GetAdminOpenIdsAsync()).Contains(openId);
 
-    public async Task AddAdminAsync(string openId) => await _db.AddAdminOpenIdAsync(openId);
-
-    public async Task RemoveAdminAsync(string openId) => await _db.RemoveAdminOpenIdAsync(openId);
+    // 旧版全局管理员增删已废弃（原 AddAdminAsync / RemoveAdminAsync）：
+    // 同一 QQ 用户在不同机器人下的 openid 不同，全局列表按机器人实例化后才准确，
+    // 新管理员请走 WebUI「机器人 → 管理员」或 /admin admin add。
 
     private bool TryApplyOverride(string key, string value, out string error)
     {
@@ -178,12 +179,16 @@ public class RuntimeConfig
                 case "Llm.ToolRoundMaxTokens": _config.Llm.ToolRoundMaxTokens = ParseInt(value, nameof(_config.Llm.ToolRoundMaxTokens)); return true;
                 case "Llm.MaxOutputLines": _config.Llm.MaxOutputLines = ParseInt(value, nameof(_config.Llm.MaxOutputLines)); return true;
                 case "Llm.MaxOutputChars": _config.Llm.MaxOutputChars = ParseInt(value, nameof(_config.Llm.MaxOutputChars)); return true;
+                case "Llm.EnableVision": _config.Llm.EnableVision = ParseBool(value, nameof(_config.Llm.EnableVision)); return true;
                 case "Trigger.PassiveCooldownSeconds": _config.Trigger.PassiveCooldownSeconds = ParseInt(value, nameof(_config.Trigger.PassiveCooldownSeconds)); return true;
+                case "Trigger.ImageLookbackSeconds": _config.Trigger.ImageLookbackSeconds = ParseNonNegativeInt(value, nameof(_config.Trigger.ImageLookbackSeconds)); return true;
                 case "Trigger.DensityWindowMinutes": _config.Trigger.DensityWindowMinutes = ParseInt(value, nameof(_config.Trigger.DensityWindowMinutes)); return true;
                 case "Trigger.DensityThreshold": _config.Trigger.DensityThreshold = ParseInt(value, nameof(_config.Trigger.DensityThreshold)); return true;
                 case "Trigger.SilenceMinutes": _config.Trigger.SilenceMinutes = ParseInt(value, nameof(_config.Trigger.SilenceMinutes)); return true;
                 case "Trigger.ActivePerHour": _config.Trigger.ActivePerHour = ParseInt(value, nameof(_config.Trigger.ActivePerHour)); return true;
                 case "Trigger.TopicAliveMinutes": _config.Trigger.TopicAliveMinutes = ParseInt(value, nameof(_config.Trigger.TopicAliveMinutes)); return true;
+                case "Trigger.RandomChatProbability": _config.Trigger.RandomChatProbability = ParseProbability(value, nameof(_config.Trigger.RandomChatProbability)); return true;
+                case "Trigger.RandomChatCooldownSeconds": _config.Trigger.RandomChatCooldownSeconds = ParseInt(value, nameof(_config.Trigger.RandomChatCooldownSeconds)); return true;
                 case "Trigger.SearchCacheMinutes": _config.Trigger.SearchCacheMinutes = ParseInt(value, nameof(_config.Trigger.SearchCacheMinutes)); return true;
                 case "Trigger.AtRecentWindowMinutes": _config.Trigger.AtRecentWindowMinutes = ParseInt(value, nameof(_config.Trigger.AtRecentWindowMinutes)); return true;
                 case "Context.WatermarkTokens": _config.Context.WatermarkTokens = ParseInt(value, nameof(_config.Context.WatermarkTokens)); return true;
@@ -218,6 +223,7 @@ public class RuntimeConfig
                 case "SayNoPath": _config.SayNoPath = value; return true;
                 case "PublicBaseUrl": _config.PublicBaseUrl = value; return true;
                 case "DebugMode": _config.DebugMode = ParseBool(value, nameof(_config.DebugMode)); return true;
+                case "DebugShowReasoning": _config.DebugShowReasoning = ParseBool(value, nameof(_config.DebugShowReasoning)); return true;
                 case "MarkdownReply": _config.MarkdownReply = ParseBool(value, nameof(_config.MarkdownReply)); return true;
                 default:
                     error = $"未知参数：{key}。可用 /admin list 查看全部参数。";
@@ -242,6 +248,16 @@ public class RuntimeConfig
         return result;
     }
 
+    /// <summary>允许 0 的整数（0 = 关闭该功能）</summary>
+    private static int ParseNonNegativeInt(string value, string name)
+    {
+        if (!int.TryParse(value.Trim(), out int result) || result < 0)
+        {
+            throw new FormatException($"{name} 需要 0 或正整数（0 = 关闭）");
+        }
+        return result;
+    }
+
     private static double ParseDouble(string value, string name)
     {
         if (!double.TryParse(value.Trim(), out double result) || result <= 0)
@@ -256,6 +272,15 @@ public class RuntimeConfig
         if (!bool.TryParse(value.Trim(), out bool result))
         {
             throw new FormatException($"{name} 需要 true 或 false");
+        }
+        return result;
+    }
+
+    private static int ParseProbability(string value, string name)
+    {
+        if (!int.TryParse(value.Trim(), out int result) || result is < 0 or > 100)
+        {
+            throw new FormatException($"{name} 需要为 0~100 的整数（0 = 关闭）");
         }
         return result;
     }
@@ -291,9 +316,10 @@ public class RuntimeConfig
     private static IEnumerable<string> AllKeys() =>
     [
         "Llm.BaseUrl", "Llm.ApiKey", "Llm.Model", "Llm.Temperature", "Llm.ToolTemperature", "Llm.TimeoutSeconds",
-        "Llm.MaxToolRounds", "Llm.ToolRoundMaxTokens", "Llm.MaxOutputLines", "Llm.MaxOutputChars",
-        "Trigger.PassiveCooldownSeconds", "Trigger.DensityWindowMinutes", "Trigger.DensityThreshold",
+        "Llm.MaxToolRounds", "Llm.ToolRoundMaxTokens", "Llm.MaxOutputLines", "Llm.MaxOutputChars", "Llm.EnableVision",
+        "Trigger.PassiveCooldownSeconds", "Trigger.ImageLookbackSeconds", "Trigger.DensityWindowMinutes", "Trigger.DensityThreshold",
         "Trigger.SilenceMinutes", "Trigger.ActivePerHour", "Trigger.TopicAliveMinutes",
+        "Trigger.RandomChatProbability", "Trigger.RandomChatCooldownSeconds",
         "Trigger.SearchCacheMinutes", "Trigger.AtRecentWindowMinutes",
         "Context.WatermarkTokens", "Context.MaxHistoryPerGroup", "Context.HistoryAssembleCapTokens",
         "Context.MaxAnchorCount", "Context.MinAnchorCount", "Context.DistillKeepMessages",
@@ -305,6 +331,6 @@ public class RuntimeConfig
         "Fun.EnableOsm", "Fun.OsmProbability",
         "Fun.EnableReverseAt", "Fun.ReverseAtProbability",
         "Fun.EnableCallBrother", "Fun.CallBrotherProbability", "Fun.CallBrotherDelaySeconds",
-        "PersonaPath", "SayNoPath", "PublicBaseUrl", "DebugMode", "MarkdownReply"
+        "PersonaPath", "SayNoPath", "PublicBaseUrl", "DebugMode", "DebugShowReasoning", "MarkdownReply"
     ];
 }

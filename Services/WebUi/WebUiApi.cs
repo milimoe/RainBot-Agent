@@ -200,27 +200,8 @@ public static class WebUiApi
                 : Results.Json(new { error }, statusCode: 400);
         });
 
-        // ---------- 设置：管理员 ----------
-        api.MapGet("/settings/admins", async (RuntimeConfig config) =>
-            Results.Json(new { openIds = await config.GetAdminOpenIdsAsync() }));
-
-        api.MapPost("/settings/admins", async (RuntimeConfig config, HttpRequest request) =>
-        {
-            JsonNode? body = await ReadBodyAsync(request);
-            string? openId = body?["openId"]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(openId))
-            {
-                return Results.Json(new { error = "openId 不能为空" }, statusCode: 400);
-            }
-            await config.AddAdminAsync(openId.Trim());
-            return Results.Json(new { ok = true });
-        });
-
-        api.MapDelete("/settings/admins/{openId}", async (string openId, RuntimeConfig config) =>
-        {
-            await config.RemoveAdminAsync(openId);
-            return Results.Json(new { ok = true });
-        });
+        // 管理员已改为按机器人实例维护（见 /bots，BotInstance.Admins）；
+        // 旧版全局 /settings/admins 端点已移除，库中历史值仍作为兜底兼容生效。
 
         // ---------- 群列表（聊天页左侧栏） ----------
         api.MapGet("/groups", async (Database db, GroupStateManager states, WebUiBridge bridge, BotInstanceStore store) =>
@@ -475,6 +456,7 @@ public static class WebUiApi
                     platform = b.Platform.ToString(),
                     b.Enabled,
                     b.PersonaPath,
+                    b.Admins,
                     qq = b.Qq,
                     oneBot = new
                     {
@@ -648,7 +630,10 @@ public static class WebUiApi
                 ? BotPlatform.OneBot11
                 : BotPlatform.QqOfficial,
             Enabled = obj["enabled"]?.GetValue<bool>() ?? true,
-            PersonaPath = obj["personaPath"]?.GetValue<string>() ?? ""
+            PersonaPath = obj["personaPath"]?.GetValue<string>() ?? "",
+            Admins = obj["admins"] is JsonArray admins
+                ? admins.Select(a => a?.GetValue<string>()?.Trim() ?? "").Where(a => a.Length > 0).ToList()
+                : []
         };
 
         if (obj["qq"] is JsonObject qq)

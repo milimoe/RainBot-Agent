@@ -112,6 +112,7 @@ public class MessageDispatcher
         }
 
         string senderOpenId = ResolveSenderOpenId(group.Author);
+        QuoteParser.Result quote = QuoteParser.Parse(group.Scene, group.MsgElements);
         await _queue.EnqueueAsync(new IncomingMessage
         {
             BotId = botId,
@@ -120,12 +121,29 @@ public class MessageDispatcher
             SenderOpenId = senderOpenId,
             Username = group.Author.Username,
             Content = group.Content,
+            ImageUrls = MergeImages(ExtractImageUrls(group.Attachments), quote.QuotedImageUrls),
+            QuotedContent = quote.QuotedText,
+            MsgIdx = quote.MsgIdx,
+            RefMsgIdx = quote.RefMsgIdx,
             IsAtRobot = true,
-            IsAdmin = await _config.IsAdminAsync(senderOpenId),
+            IsAdmin = await _store.IsAdminAsync(botId, senderOpenId),
             IsFullMessage = false,
             SkipSideEffects = skipSideEffects
         });
     }
+
+    /// <summary>
+    /// 取消息附件中的图片 URL（官方 attachments 可能含图片/视频/文件，只取 image/*）。
+    /// 这些 URL 仅在本轮请求内联给多模态模型使用，不落历史。
+    /// </summary>
+    private static List<string> ExtractImageUrls(Attachment[] attachments)
+        => [.. attachments
+            .Where(a => a.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(a.Url))
+            .Select(a => a.Url)];
+
+    /// <summary>合并本条附件图片与引用消息里的图片（去重，保持顺序）</summary>
+    private static List<string> MergeImages(List<string> own, List<string> quoted)
+        => own.Concat(quoted).Distinct(StringComparer.Ordinal).ToList();
 
     private async Task HandleGroupFullAsync(string botId, JsonElement data)
     {
@@ -151,10 +169,13 @@ public class MessageDispatcher
         // 全量消息：mentions（is_you/openid 匹配，权威）→ content 标签兜底，精确判断是否 @ 机器人
         bool isAt = await _botIdentity.IsAtBotAsync(group.Content, group.Mentions);
         string senderOpenId = ResolveSenderOpenId(group.Author);
+        QuoteParser.Result quote = QuoteParser.Parse(group.Scene, group.MsgElements);
+        // 机器人自己的消息（全量模式回显，author.bot=true）：暖群判定"最后一条是自己"的依据
+        bool isFromBot = group.Author.IsBot;
         if (_logger.IsEnabled(LogLevel.Debug))
         {
-            _logger.LogDebug("[全量事件] id={Id} group={Group} sender={Sender} isAt={IsAt} content={Content}",
-                group.Id, group.GroupOpenId, senderOpenId, isAt, group.Content);
+            _logger.LogDebug("[全量事件] id={Id} group={Group} sender={Sender} isAt={IsAt} isBot={IsBot} content={Content}",
+                group.Id, group.GroupOpenId, senderOpenId, isAt, isFromBot, group.Content);
         }
 
         await _queue.EnqueueAsync(new IncomingMessage
@@ -166,9 +187,14 @@ public class MessageDispatcher
             SenderOpenId = senderOpenId,
             Username = group.Author.Username,
             Content = group.Content,
-            IsAtRobot = isAt,
-            IsAdmin = await _config.IsAdminAsync(senderOpenId),
-            IsFullMessage = true
+            ImageUrls = MergeImages(ExtractImageUrls(group.Attachments), quote.QuotedImageUrls),
+            QuotedContent = quote.QuotedText,
+            MsgIdx = quote.MsgIdx,
+            RefMsgIdx = quote.RefMsgIdx,
+            IsAtRobot = isAt && !isFromBot,
+            IsAdmin = await _store.IsAdminAsync(botId, senderOpenId),
+            IsFullMessage = true,
+            IsFromBot = isFromBot
         });
     }
 
@@ -195,6 +221,7 @@ public class MessageDispatcher
         _dedupeC2c.Mark("p" + c2c.Id);
 
         string senderOpenId = c2c.Author.UserOpenId;
+        QuoteParser.Result quote = QuoteParser.Parse(c2c.Scene, c2c.MsgElements);
         if (_logger.IsEnabled(LogLevel.Debug))
         {
             _logger.LogDebug("[C2C] id={Id} sender={Sender} content={Content}", c2c.Id, senderOpenId, c2c.Content);
@@ -208,8 +235,12 @@ public class MessageDispatcher
             SenderOpenId = senderOpenId,
             Username = c2c.Author.Username,
             Content = c2c.Content,
+            ImageUrls = MergeImages(ExtractImageUrls(c2c.Attachments), quote.QuotedImageUrls),
+            QuotedContent = quote.QuotedText,
+            MsgIdx = quote.MsgIdx,
+            RefMsgIdx = quote.RefMsgIdx,
             IsAtRobot = true,
-            IsAdmin = await _config.IsAdminAsync(senderOpenId),
+            IsAdmin = await _store.IsAdminAsync(botId, senderOpenId),
             IsFullMessage = false,
             IsPrivate = true
         });

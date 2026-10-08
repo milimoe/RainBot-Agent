@@ -171,6 +171,29 @@ public static class OneBotMessage
         return sb.ToString().Trim();
     }
 
+    /// <summary>拼取图片消息段的直链 URL（部分实现把直链放在 url，部分放在 file）</summary>
+    public static List<string> ExtractImageUrls(JsonElement message)
+    {
+        List<string> urls = [];
+        foreach (OneBotSegment seg in Parse(message))
+        {
+            if (seg.Type != TypeImage)
+            {
+                continue;
+            }
+            string url = GetString(seg, "url");
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                url = GetString(seg, "file");
+            }
+            if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                urls.Add(url);
+            }
+        }
+        return urls;
+    }
+
     /// <summary>是否 @ 了指定 QQ 号（含 @全体成员）</summary>
     public static bool IsAt(JsonElement message, string selfQq)
     {

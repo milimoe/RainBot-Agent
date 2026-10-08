@@ -6,6 +6,9 @@ public enum TriggerType
     /// <summary>被动触发：@ 机器人 / 回复机器人</summary>
     Passive,
 
+    /// <summary>随机插嘴：普通群消息按概率触发（未 @ 机器人）</summary>
+    RandomChat,
+
     /// <summary>主动暖群：密度唤醒或沉默唤醒</summary>
     Warmup
 }
@@ -36,6 +39,28 @@ public class IncomingMessage
     /// <summary>消息内容（含 <@!xxx> 等富文本标签）</summary>
     public required string Content { get; init; }
 
+    /// <summary>
+    /// 图片消息的图片 URL 列表（QQ 官方 = attachments 中 image/* + 引用消息里的图片；OneBot = image 消息段直链）。
+    /// 仅用于本轮多模态请求内联，不写入历史（历史里是 [图片] 占位）。
+    /// </summary>
+    public List<string> ImageUrls { get; init; } = [];
+
+    /// <summary>被引用的消息正文（官方引用消息随事件下发；空 = 本条不是引用）</summary>
+    public string QuotedContent { get; init; } = "";
+
+    /// <summary>本条消息索引（官方 message_scene.ext 的 msg_idx，供他人引用时本地回溯）</summary>
+    public string MsgIdx { get; init; } = "";
+
+    /// <summary>被引用消息索引（官方 message_scene.ext 的 ref_msg_idx）</summary>
+    public string RefMsgIdx { get; init; } = "";
+
+    /// <summary>展示/入库文本：纯图片消息用 [图片] 占位、纯引用用 [引用消息] 占位，避免空内容进历史与上下文</summary>
+    public string DisplayContent => !string.IsNullOrWhiteSpace(Content)
+        ? Content
+        : ImageUrls.Count > 0 ? "[图片]"
+        : !string.IsNullOrWhiteSpace(QuotedContent) ? "[引用消息]"
+        : "";
+
     /// <summary>是否 @ 了机器人（GROUP_AT_MESSAGE_CREATE 事件或全量消息中含 @ 标记）</summary>
     public bool IsAtRobot { get; init; }
 
@@ -47,6 +72,9 @@ public class IncomingMessage
 
     /// <summary>是否全量消息事件（GROUP_MESSAGE_CREATE，非 @ 推送）</summary>
     public bool IsFullMessage { get; init; }
+
+    /// <summary>是否机器人自己的消息（全量模式回显，author.bot=true）</summary>
+    public bool IsFromBot { get; init; }
 
     /// <summary>
     /// 是否私聊（C2C）。私聊时 GroupOpenId 存的是会话键 {实例Id}:p{用户号}；
@@ -97,6 +125,9 @@ public class TriggerContext
 
     /// <summary>是否允许模型调用画像更新工具（仅主动暖群允许）</summary>
     public bool AllowProfileUpdate { get; init; }
+
+    /// <summary>触发消息附带的图片 URL（被动/插嘴带图时非空；暖群为空），由组装器下载后内联进多模态请求</summary>
+    public List<string> ImageUrls { get; init; } = [];
 
     /// <summary>触发时间（本地 UTC）</summary>
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;

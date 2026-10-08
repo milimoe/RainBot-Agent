@@ -1,7 +1,10 @@
 using System.Text.RegularExpressions;
 using RainBot.Models;
+using RainBot.Services.Bots;
 using RainBot.Services.Config;
 using RainBot.Services.Fun;
+using RainBot.Services.Llm;
+using RainBot.Services.Profile;
 using RainBot.Services.Storage;
 using RainBot.Services.Trigger;
 
@@ -9,16 +12,18 @@ namespace RainBot.Services.Commands;
 /// <summary>
 /// 指令解析与执行：
 /// - 用户指令：/忘掉我（清除自己的 L0 画像）
-/// - 管理员指令：/admin list | set | mute | unmute | stats | admin add/remove | forget | help
+/// - 管理员指令：/admin list | set | mute | unmute | stats | reasoning | admin add/remove | forget | help
 /// - /status：状态查看（管理员）
 /// </summary>
-public class CommandParser(RuntimeConfig config, GroupStateManager states, Database db, SayNoWordsService sayNoWords, OsmImageCatalog osmCatalog, ILogger<CommandParser> logger)
+public class CommandParser(RuntimeConfig config, GroupStateManager states, Database db, SayNoWordsService sayNoWords, OsmImageCatalog osmCatalog, ReasoningRecorder reasoningRecorder, BotInstanceStore botStore, ILogger<CommandParser> logger)
 {
     private readonly RuntimeConfig _config = config;
     private readonly GroupStateManager _states = states;
     private readonly Database _db = db;
     private readonly SayNoWordsService _sayNoWords = sayNoWords;
     private readonly OsmImageCatalog _osmCatalog = osmCatalog;
+    private readonly ReasoningRecorder _reasoningRecorder = reasoningRecorder;
+    private readonly BotInstanceStore _botStore = botStore;
     private readonly ILogger<CommandParser> _logger = logger;
 
     private static readonly Regex StripTagsRegex = new(@"<[^>]+>", RegexOptions.Compiled);
@@ -75,6 +80,7 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
             "mute" or "静默" => new ParsedCommand(CommandKind.AdminMute, args.Length >= 2 ? args[1] : "0"),
             "unmute" or "解除静默" => new ParsedCommand(CommandKind.AdminUnmute),
             "stats" or "统计" => new ParsedCommand(CommandKind.AdminStats),
+            "reasoning" or "思考" or "思维链" => new ParsedCommand(CommandKind.AdminReasoning),
             "admin" => args.Length >= 2 && (args[1].ToLowerInvariant() == "add" || args[1].ToLowerInvariant() == "remove")
                 ? new ParsedCommand(CommandKind.AdminManage, args[1].ToLowerInvariant(), args.Length >= 3 ? args[2] : "")
                 : null,
@@ -84,9 +90,10 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
         };
     }
 
-    /// <summary>执行指令，返回回复文本（null = 不回复）</summary>
-    public async Task<string?> ExecuteAsync(ParsedCommand command, string groupOpenId, string senderOpenId, bool isAdmin)
+    /// <summary>执行指令，返回回复文本（null = 不回复）。botId 决定管理员维护与状态查看的目标实例</summary>
+    public async Task<string?> ExecuteAsync(ParsedCommand command, string groupOpenId, string senderOpenId, bool isAdmin, string? botId = null)
     {
+        botId = string.IsNullOrWhiteSpace(botId) ? Database.LegacyBotId : botId;
         switch (command.Kind)
         {
             case CommandKind.ForgetMe:
@@ -96,7 +103,7 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
 
             case CommandKind.Status:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
-                return await BuildStatusAsync(groupOpenId);
+                return await BuildStatusAsync(groupOpenId, botId);
 
             case CommandKind.FunStatus:
                 // 随机互动状态（所有人可查看）
@@ -104,7 +111,7 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
 
             case CommandKind.AdminHelp:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
-                return "管理员指令：\n/admin list 查看参数\n/admin set 参数 值\n/admin mute [分钟] / unmute\n/admin stats\n/admin admin add|remove openid\n/admin forget 短id\n/status";
+                return "管理员指令：\n/admin list 查看参数\n/admin set 参数 值\n/admin mute [分钟] / unmute\n/admin stats\n/admin reasoning 查看最后的思维链\n/admin admin add|remove id（本实例管理员，QQ 官方填 openid / OneBot 填 QQ 号）\n/admin forget 短id\n/status";
 
             case CommandKind.AdminList:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
@@ -117,7 +124,17 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
                     return "用法：/admin set 参数 值（如 /admin set Trigger.PassiveCooldownSeconds 60）";
                 }
                 string? error = await _config.SetAsync(command.Key, command.Value);
-                return error ?? $"参数 {command.Key} 已更新为 {command.Value} ☔";
+                if (error != null)
+                {
+                    return error;
+                }
+                string ok = $"参数 {command.Key} 已更新为 {command.Value} ☔";
+                // 思维显示依赖调试模式：单开不生效，明确提示，避免"开了没反应"
+                if (_config.Config.DebugShowReasoning && !_config.Config.DebugMode)
+                {
+                    ok += "\n注意：思维显示还需 DebugMode=true 才会生效（/admin set DebugMode true）";
+                }
+                return ok;
 
             case CommandKind.AdminMute:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
@@ -144,19 +161,23 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
                 return await BuildStatsAsync(groupOpenId);
 
+            case CommandKind.AdminReasoning:
+                if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
+                return BuildReasoningView(groupOpenId);
+
             case CommandKind.AdminManage:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
                 if (string.IsNullOrWhiteSpace(command.Value))
                 {
-                    return "用法：/admin admin add|remove openid";
+                    return "用法：/admin admin add|remove openid（QQ 官方实例填群内 openid，OneBot11 实例填 QQ 号）";
                 }
                 if (command.Key == "add")
                 {
-                    await _config.AddAdminAsync(command.Value);
-                    return $"已将 {command.Value[..Math.Min(8, command.Value.Length)]}… 添加为管理员 ☔";
+                    string? addError = await _botStore.AddAdminAsync(botId, command.Value);
+                    return addError ?? $"已添加为本实例管理员：{command.Value} ☔";
                 }
-                await _config.RemoveAdminAsync(command.Value);
-                return $"已移除管理员 {command.Value[..Math.Min(8, command.Value.Length)]}… ☔";
+                string? removeError = await _botStore.RemoveAdminAsync(botId, command.Value);
+                return removeError ?? $"已移除本实例管理员：{command.Value} ☔";
 
             case CommandKind.AdminForget:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
@@ -213,12 +234,34 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
         return $"本群：消息 {state.TotalMessages} 条，缓存命中率 {hitRate:0.0%}，静默状态：{(state.Muted == true ? "已静默" : "正常")} ☔";
     }
 
-    private async Task<string> BuildStatusAsync(string groupOpenId)
+    /// <summary>思维链查看字数上限（QQ 单条消息长度有限，超长截断）</summary>
+    private const int MaxReasoningDisplayChars = 1200;
+
+    /// <summary>查看本群最后一次模型思维链（调试模式记录）</summary>
+    private string BuildReasoningView(string groupOpenId)
+    {
+        if (!_config.Config.DebugMode)
+        {
+            return "当前未开启调试模式（DebugMode），不会记录思维链。先用 /admin set DebugMode true 开启 ☔";
+        }
+        ReasoningSnapshot? snapshot = _reasoningRecorder.GetLast(groupOpenId);
+        if (snapshot == null)
+        {
+            return "本群还没有记录到思维链（开启调试模式后等下一次触发 LLM 再查）🌧️";
+        }
+        string text = snapshot.Text.Length > MaxReasoningDisplayChars
+            ? snapshot.Text[..MaxReasoningDisplayChars] + "…（已截断）"
+            : snapshot.Text;
+        return $"最后一次思维链（{snapshot.TimeUtc.ToLocalTime():MM-dd HH:mm:ss}，群 {AnchorManager.ShortId(snapshot.GroupOpenId)}，finish={snapshot.FinishReason ?? "unknown"}，output={snapshot.CompletionTokens} tokens）：\n{text}";
+    }
+
+    private async Task<string> BuildStatusAsync(string groupOpenId, string botId)
     {
         double hitRate = await _db.GetCacheHitRateAsync(groupOpenId);
         GroupState state = _states.GetOrCreate(groupOpenId);
-        List<string> admins = await _config.GetAdminOpenIdsAsync();
-        return $"机器人：雨 🌧️\n本群消息 {state.TotalMessages} 条，缓存命中率 {hitRate:0.0%}\n管理员 {admins.Count} 人，静默：{(state.Muted == true ? "是" : "否")}，降级：{(state.Degraded ? "是" : "否")}";
+        BotInstance? instance = _botStore.Get(botId);
+        int adminCount = instance?.Admins.Count ?? 0;
+        return $"机器人：{instance?.Name ?? botId} 🌧️\n本群消息 {state.TotalMessages} 条，缓存命中率 {hitRate:0.0%}\n本实例管理员 {adminCount} 人，静默：{(state.Muted == true ? "是" : "否")}，降级：{(state.Degraded ? "是" : "否")}";
     }
 
     private string BuildFunStatusAsync()
@@ -265,6 +308,7 @@ public enum CommandKind
     AdminMute,
     AdminUnmute,
     AdminStats,
+    AdminReasoning,
     AdminManage,
     AdminForget,
     AdminSayNoList,

@@ -44,9 +44,9 @@ public class CommandParserTests
         string? denied = await parser.ExecuteAsync(cmd, "g", "user_x", isAdmin: false);
         Assert.Contains("管理员", denied);
 
-        // 管理员成功且参数即时生效
+        // 管理员成功且参数即时生效（旧版全局管理员：库表兜底仍生效）
         var config = sp.GetRequiredService<Services.Config.RuntimeConfig>();
-        await config.AddAdminAsync("user_admin_0123");
+        await sp.GetRequiredService<Services.Storage.Database>().AddAdminOpenIdAsync("user_admin_0123");
         string? reply = await parser.ExecuteAsync(cmd, "g", "user_admin_0123", isAdmin: true);
         Assert.Contains("已更新", reply);
         Assert.Equal(60, config.Config.Trigger.PassiveCooldownSeconds);

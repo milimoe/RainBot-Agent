@@ -20,6 +20,7 @@ public class WorkflowRunner(
     SendQueue sendQueue,
     CacheMonitor cacheMonitor,
     RuntimeConfig config,
+    Services.Bots.BotInstanceStore bots,
     ILogger<WorkflowRunner> logger)
 {
     private readonly BlockComposer _blockComposer = blockComposer;
@@ -29,15 +30,43 @@ public class WorkflowRunner(
     private readonly SendQueue _sendQueue = sendQueue;
     private readonly CacheMonitor _cacheMonitor = cacheMonitor;
     private readonly RuntimeConfig _config = config;
+    private readonly Services.Bots.BotInstanceStore _bots = bots;
     private readonly ILogger<WorkflowRunner> _logger = logger;
     private readonly SemaphoreSlim _workflowLock = new(1, 1);
+
+    /// <summary>思维显示时思维链的展示字数上限（防单条消息过长，超出截断）</summary>
+    private const int MaxReasoningDisplayChars = 1000;
+
+    /// <summary>
+    /// 组装调试内容：思维显示开启（DebugMode + DebugShowReasoning）且模型有思维内容时，
+    /// 把思维链用 ``` 包起来拼在回复前面；思维链单独过一遍风控（替换 openid、拒绝注入），
+    /// 不通过则只发回复本身。
+    /// </summary>
+    private string ComposeDebugContent(string text, string? reasoning)
+    {
+        if (!_config.Config.DebugMode || !_config.Config.DebugShowReasoning || string.IsNullOrWhiteSpace(reasoning))
+        {
+            return text;
+        }
+        string? safe = _outputFilter.Filter(reasoning, applyLlmLimits: false);
+        if (safe == null)
+        {
+            _logger.LogWarning("思维链未通过输出风控，本次仅发送回复内容");
+            return text;
+        }
+        if (safe.Length > MaxReasoningDisplayChars)
+        {
+            safe = safe[..MaxReasoningDisplayChars] + "…（已截断）";
+        }
+        return $"```\n{safe}\n```\n{text}";
+    }
 
     /// <summary>
     /// 执行一次触发工作流。
     /// </summary>
     /// <param name="ctx">触发上下文</param>
     /// <param name="replyMsgId">被动回复时引用原消息 ID</param>
-    /// <returns>是否真正入队发送了消息（暖群无内容可说时静默跳过会返回 false）</returns>
+    /// <returns>是否真正入队发送了消息（无内容可说时静默跳过会返回 false）</returns>
     public async Task<bool> RunAsync(TriggerContext ctx, string? replyMsgId, CancellationToken ct = default)
     {
         await _workflowLock.WaitAsync(ct);
@@ -59,7 +88,7 @@ public class WorkflowRunner(
             }
 
             // 3. ReAct 循环（工具调用追加尾部，不污染前缀）
-            bool isAdmin = ctx.SenderOpenId != null && await _config.IsAdminAsync(ctx.SenderOpenId);
+            bool isAdmin = ctx.SenderOpenId != null && await _bots.IsAdminAsync(ctx.BotId, ctx.SenderOpenId);
             ToolExecutionContext toolCtx = new()
             {
                 GroupOpenId = ctx.GroupOpenId,
@@ -68,21 +97,18 @@ public class WorkflowRunner(
                 AllowProfileUpdate = ctx.AllowProfileUpdate
             };
 
-            // 暖群（主动开话题）若 LLM 无内容可说，静默跳过而不是发「想不出怎么接话题」这类被动兜底话术；
-            // 被动（@/私聊）保持默认兜底，保证有回应。
-            bool isWarmup = ctx.Type == TriggerType.Warmup;
-            ReActResult result = isWarmup
-                ? await _reactLoop.RunAsync(compose.Messages, toolCtx, fallback: "", ct: ct)
-                : await _reactLoop.RunAsync(compose.Messages, toolCtx, ct: ct);
+            // LLM 无内容可说（空输出/调用失败）时一律静默跳过，任何触发类型都不发
+            // 「想不出怎么接话题」这类被动兜底话术。
+            ReActResult result = await _reactLoop.RunAsync(compose.Messages, toolCtx, ct: ct);
 
             // 4. 输出风控
             string? text = _outputFilter.Filter(result.Text);
             if (text == null)
             {
-                if (isWarmup && string.IsNullOrWhiteSpace(result.Text))
+                if (string.IsNullOrWhiteSpace(result.Text))
                 {
-                    // 暖群静默期无有效内容（历史空/话题已冷/LLM 失败）→ 保持安静，等冷却后重试
-                    _logger.LogInformation("群 {Group} 暖群无有效内容（failed={Failed}），静默跳过不发送", ctx.GroupOpenId, result.Failed);
+                    // LLM 无有效内容（历史空/话题已冷/LLM 觉得没必要接/失败）→ 保持安静，不发任何兜底话术
+                    _logger.LogInformation("群 {Group} {Type}无有效内容（failed={Failed}），静默跳过不发送", ctx.GroupOpenId, ctx.Type, result.Failed);
                 }
                 else
                 {
@@ -92,7 +118,8 @@ public class WorkflowRunner(
             }
             else
             {
-                string content = text;
+                // 思维显示（需 DebugMode + DebugShowReasoning）：思维链用 ``` 包起来，与回复一起发出
+                string content = ComposeDebugContent(text, result.Reasoning);
                 // 调试模式：输出末尾追加一行「x tokens, x tools」统计（输入+输出 token、工具调用次数）；
                 // Markdown 回复模式下使用块引用格式「> x tokens, x tools」
                 if (_config.Config.DebugMode)
@@ -101,7 +128,7 @@ public class WorkflowRunner(
                     string footer = _config.Config.MarkdownReply
                         ? $"> {tokens} tokens, {result.ToolCallCount} tools"
                         : $"{tokens} tokens, {result.ToolCallCount} tools";
-                    content = $"{text}\n{footer}";
+                    content = $"{content}\n{footer}";
                 }
                 await _sendQueue.EnqueueAsync(new SendTask
                 {

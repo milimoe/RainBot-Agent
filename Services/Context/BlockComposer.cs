@@ -24,6 +24,7 @@ public class BlockComposer(
     GroupStateManager states,
     AnchorManager anchorManager,
     HistoryStore historyStore,
+    VisionImageLoader visionLoader,
     RuntimeConfig config,
     ILogger<BlockComposer> logger)
 {
@@ -32,6 +33,7 @@ public class BlockComposer(
     private readonly GroupStateManager _states = states;
     private readonly AnchorManager _anchorManager = anchorManager;
     private readonly HistoryStore _historyStore = historyStore;
+    private readonly VisionImageLoader _visionLoader = visionLoader;
     private readonly RuntimeConfig _config = config;
     private readonly ILogger<BlockComposer> _logger = logger;
 
@@ -90,7 +92,7 @@ public class BlockComposer(
             ChatMessage.System(blockA),
             ChatMessage.User(blockB + "\n\n" + blockC + "\n\n" + blockD),
             ChatMessage.User(blockE),
-            ChatMessage.User(blockF)
+            await BuildCurrentMessageAsync(blockF, ctx)
         ];
 
         if (_logger.IsEnabled(LogLevel.Debug))
@@ -111,6 +113,44 @@ public class BlockComposer(
             FixedTokens = fixedTokens,
             GroupOpenId = ctx.GroupOpenId
         };
+    }
+
+    /// <summary>单条消息最多内联的图片数（防刷图把请求体撑爆）</summary>
+    private const int MaxInlineImages = 4;
+
+    /// <summary>
+    /// 组装 Block F 当前消息：带图且开启视觉时，把图片下载并 base64 内联为多模态块
+    /// （文本块 + 图片块，DeepSeek 视觉格式）。图片只在本轮请求内联、不落 history；
+    /// 全部图片加载失败则退化为纯文本（正文含 [图片] 占位）。
+    /// </summary>
+    private async Task<ChatMessage> BuildCurrentMessageAsync(string blockF, TriggerContext ctx)
+    {
+        if (ctx.ImageUrls.Count == 0 || !_config.Config.Llm.EnableVision)
+        {
+            return ChatMessage.User(blockF);
+        }
+        List<ContentPart> parts = [ContentPart.TextPart(blockF)];
+        foreach (string url in ctx.ImageUrls.Take(MaxInlineImages))
+        {
+            string? dataUrl = await _visionLoader.ToDataUrlAsync(url);
+            if (dataUrl != null)
+            {
+                parts.Add(ContentPart.ImagePart(dataUrl));
+            }
+        }
+        if (ctx.ImageUrls.Count > MaxInlineImages)
+        {
+            _logger.LogInformation("群 {Group} 消息含 {Total} 张图片，本轮只内联前 {Max} 张", ctx.GroupOpenId, ctx.ImageUrls.Count, MaxInlineImages);
+        }
+        if (parts.Count == 1)
+        {
+            return ChatMessage.User(blockF); // 全部加载失败 → 纯文本
+        }
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("群 {Group} 本轮内联图片 {Count} 张（触发：{Type}）", ctx.GroupOpenId, parts.Count - 1, ctx.Type);
+        }
+        return ChatMessage.UserWithParts(parts);
     }
 
     private static string BuildGroupProfileBlock(GroupProfile profile)
@@ -154,6 +194,21 @@ public class BlockComposer(
         {
             sb.AppendLine($"暖群提示：{ctx.WarmupHint}");
         }
+        if (!string.IsNullOrWhiteSpace(ctx.QuotedContent))
+        {
+            // 用户引用了某条消息提问：把被引用内容显式给出，模型才明白"这个/他说的"指什么
+            string quoted = CleanContent(ctx.QuotedContent);
+            if (quoted.Length > 600)
+            {
+                quoted = quoted[..600] + "…";
+            }
+            sb.AppendLine($"被引用的消息：{quoted}");
+        }
+        if (ctx.ImageUrls.Count > 0)
+        {
+            // 图片本体作为多模态块紧跟在本块之后；此处只给文字提示，历史里是 [图片] 占位
+            sb.AppendLine($"图片消息：本次附带 {ctx.ImageUrls.Count} 张图片（含引用消息中的图片，内容见下方，请结合图片理解后再回应）。");
+        }
         if (ctx.Type == TriggerType.Warmup)
         {
             // 暖群 = 主动破冰：明确告知 LLM 现在没人说话、需要它开口，
@@ -161,9 +216,17 @@ public class BlockComposer(
             sb.AppendLine();
             sb.AppendLine("[任务] 现在是主动暖场时间：群里安静了一阵子，请你自然地开口说话，而不是回复某个具体的人。可以结合上面的群画像/最近话题找个轻松切入点，或聊聊天气、日常、趣事，语气保持人设。直接输出你要说的那句话即可。");
         }
+        else if (ctx.Type == TriggerType.RandomChat)
+        {
+            // 随机插嘴 = 路过搭话：没人 @ 它，必须允许模型选择不接话，
+            // 否则概率命中的每条消息都会被硬回。
+            // 空内容用固定哨兵 (empty) 表达：模型写「空内容」时常会输出「（空）」等字面文本被发送出去，
+            // 固定哨兵由 ReActLoop 归一为空文本 → 走「无内容 → 静默跳过」路径。
+            sb.AppendLine();
+            sb.AppendLine("[任务] 这次没有人在 @ 你，你只是在旁听群聊时刚好看到这条消息。觉得值得接就自然插一句，像顺手搭话的群友，保持人设，不要自我介绍、不要客套；接不上或没必要回，就只输出固定内容 (empty) 保持安静（系统会静默处理，不会发出任何消息，不要写别的兜底话）。");
+        }
         return sb.ToString();
     }
-
     /// <summary>清理消息中的富文本标签（@ 标签替换为可读形式）</summary>
     private static string CleanContent(string content)
     {

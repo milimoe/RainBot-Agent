@@ -1,3 +1,6 @@
 <Solution>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/RainBot.Tests.csproj" />
+  </Folder>
   <Project Path="RainBot.csproj" />
 </Solution>
