@@ -218,8 +218,8 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
         List<(string Key, string Value, bool Overridden)> items = await _config.ListAllAsync();
         var lines = items.Select(i =>
         {
-            // 密钥类参数脱敏：解除输出截断后 /admin list 会完整输出，绝不能泄露 DeepSeek Key
-            string value = i.Key == "Llm.ApiKey" && !string.IsNullOrWhiteSpace(i.Value)
+            // 密钥类参数脱敏：解除输出截断后 /admin list 会完整输出，绝不能泄露 DeepSeek / Tavily Key
+            string value = i.Key.EndsWith("ApiKey", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(i.Value)
                 ? "••••••（已配置，不显示）"
                 : i.Value;
             return i.Overridden ? $"⚙ {i.Key} = {value}（已修改）" : $"{i.Key} = {value}";

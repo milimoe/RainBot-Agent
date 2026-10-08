@@ -24,6 +24,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- webui/ 是前端源码目录（package.json 等仅供构建用），运行时不使用：
+         Web SDK 默认把 **/*.json 当内容发布，这里排除，避免发布目录出现无用的 webui 副本 -->
+    <Content Remove="webui\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="Persona\persona.md" CopyToOutputDirectory="PreserveNewest" />
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

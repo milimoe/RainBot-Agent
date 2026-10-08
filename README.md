@@ -16,7 +16,7 @@
 | 识图 | 带图消息（QQ 官方 `attachments` 中 image/*、OneBot image 消息段直链）走多模态识图：图片**下载到内存**并转 base64 data URL 内联进请求（DeepSeek 视觉格式，不落盘因此无需清理），与同一轮的文本一起交给模型理解后回复；单图 ≤8MB、单条最多 4 张、下载超时 20s；下载失败/超限/非图片自动降级纯文本，不中断回复。图片本体**不进历史与上下文**（历史里是 `[图片]` 占位），因此不会重复消耗 token；`Llm.EnableVision=false` 可整体关闭。<br>**引用（回复）消息**：官方在事件里直接下发被引用内容——`message_type=103`（引用消息）/`102`（聊天记录）时，被引用正文与附件在 `msg_elements[].content` / `.attachments`，直接取用（被引用图片同样内联识图）；只带 `message_scene.ext` 的 `ref_msg_idx`（未下发内容）时，按索引从本地历史回溯被引用那条（QQ 官方用 msg_idx，OneBot 用 `reply` 消息段的消息 id）。<br>**先发图、再 @ 机器人分析**：既不是引用也没带图时，向前回溯**触发者本人**最近一张图（窗口 `Trigger.ImageLookbackSeconds`，默认 180s，0 = 关闭；只认本人的图，不跨人取图）。图片 URL 与消息索引仅存内存，重启后回溯为空 |
 | 上下文缓存 | Block A-F 固定顺序组装，可变内容只追加尾部、头部整条丢弃；153.6k 水位三级治理（删 E → 缩 D → 蒸馏压缩 + 降级运行） |
 | 群友画像 | L0 全量画像存库不进上下文；L1 锚点 Top 5 常驻（<20 tokens）；L2 触发式召回进尾部块，下轮即弃 |
-| ReAct 工具 | `web_search`（10 分钟话题缓存）、`get_user_profile`、`update_user_profile`（仅暖群）、管理员工具；工具轮次上限防死循环，触顶自动补一次 `tool_choice=none` 收口请求（不丢弃已拿到的工具结果）；温度两档（对话/收口 0.9、工具链中段 0.2） |
+| ReAct 工具 | `web_search`（**后端可配**：bing 默认 / tavily / duckduckgo / searxng，10 分钟话题缓存，失败短路 60s 不重复等超时）、`get_user_profile`、`update_user_profile`（仅暖群）、管理员工具；工具轮次上限防死循环，触顶自动补一次 `tool_choice=none` 收口请求（不丢弃已拿到的工具结果）；温度两档（对话/收口 0.9、工具链中段 0.2） |
 | 风控 | 输入（广告/涉政/引流不回应）、输出（openid 泄露替换、≤2 行截断）、平台频控（15 qpm 留余量）、成本监控（缓存命中率 <60% 告警） |
 | 随机互动 | 移植原版 RainBOT：随机反驳是/不、随机复读（延迟防刷屏）、随机OSM（梗图）、反向艾特、随机叫哥；纯规则概率触发不耗 Token，一次消息最多命中一个（防刷屏） |
 | 人设系统 | `Persona/persona.md` 随时改写，保存即热重载，无需重启 |
@@ -109,6 +109,12 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 | `Fun.EnableReplyYes` / `ReplyYesProbability` | true / 40 | 随机反驳是（消息=「是」时概率反驳「是你的头」） |
 | `Fun.EnableReplyNo` / `ReplyNoProbability` | true / 16 | 随机反驳不（词表抬杠，词表存于 `sayno.json` 可热更新） |
 | `SayNoPath` | sayno.json | 反驳不词表 JSON 路径（缺失自动生成默认，编辑保存即热重载） |
+| `Search.Provider` | bing | **搜索后端**：`bing` = cn.bing.com（默认，国内可直连、中文结果）/ `tavily` = 商业搜索 API（需填 Key，**有每日额度，用尽或报错自动回退 bing**）/ `duckduckgo` = html.duckduckgo.com（**部分网络不可达，如中国大陆**）/ `searxng` = 自建实例（需填基址，实例需开启 `json` 输出格式）；热改即时生效 |
+| `Search.TavilyApiKey` | 空 | Tavily API Key（app.tavily.com 获取，`tvly-` 开头）；`Search.Provider=tavily` 时使用，未填则回退 bing |
+| `Search.TavilyDailyLimit` | 100 | **Tavily 每日调用上限**（按服务器本地日期，跨天自动重置；0 = 不限制）。达到上限后自动回退 bing，计数持久化在 `search_usage` 表，重启不丢 |
+| `Search.SearxngBaseUrl` | 空 | SearXNG 实例基址（如 https://searx.example.com），`Search.Provider=searxng` 时必填 |
+| `Search.TimeoutSeconds` | 15 | 单次搜索超时（秒）：网络不通时快速失败，避免拖住整条回复 |
+| `Search.MaxResults` | 3 | 进上下文的搜索结果条数 |
 | `Fun.ReplyNoMemeUrl` / `ReplyNoMemeProbability` | 空 / 30 | 反驳不命中时按该概率改用烂梗 API 回复（**默认留空，留空不触发该分支**，始终用词表）；失败自动回退词表 |
 | `Fun.EnableRepeat` / `RepeatProbability` | true / 7 | 随机复读（延迟 30-80s，50% 加 desuwa～） |
 | `Fun.EnableOsm` / `OsmProbability` | true / 2 | 随机 OSM 梗图（**图片无需配置路径**：自动扫描 `wwwroot/osm/` 目录，URL = 公网域名 + 相对路径） |
@@ -225,7 +231,7 @@ WarmupScheduler（30s 扫描）──▶ 密度/沉默/频控判定 ──▶ �
 | 缓存命中率 ≥ 90%（正常模式） | BlockComposer 前缀稳定（测试 `上下文组装_前缀稳定` 断言 A/B+C+D 不变）；`/admin stats` 与日志可查实时命中率 |
 | @响应率 > 95%（扣除冷却） | 双事件去重（@/全量同 msg_id 协调，@ 语义优先）+ 冷却期队列化，被动触发链路全覆盖；测试覆盖冷却边界与双事件到达顺序 |
 | 暖群自然度 ≥ 60% | 决策 Prompt（Block F 暖群提示：话题/情绪）+ 互动增强（锚点 @ 仅在 30 分钟活跃窗口内） |
-| 搜索硬错误率 ≤ 5% | 10 分钟话题缓存 + 搜索失败时让模型照实简短说明（仍无内容则静默跳过）；ReAct 工具结果截断 |
+| 搜索可用率 | 默认后端 `bing`（cn.bing.com 国内可直连，实测可解析）；可选 `tavily`（结构化结果、无需反爬对抗）并设**每日调用上限**，达到上限或调用失败（鉴权/限流/网络）**自动回退 bing**，不会因额度耗尽而搜不出结果；后端不可达/超时/被反爬均有明确 Warn 日志（含状态码、响应长度与文本片段）；失败 60s 短路避免每次卡住；10 分钟话题缓存 |
 | 153k 水位不崩溃不死循环 | WatermarkManager 三级治理（删 E 头部→缩 D→蒸馏+降级），蒸馏后重建上下文；测试覆盖蒸馏/降级/静默重置 |
 
 ## 测试

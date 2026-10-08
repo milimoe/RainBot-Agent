@@ -224,6 +224,12 @@ public class RuntimeConfig
                 case "PublicBaseUrl": _config.PublicBaseUrl = value; return true;
                 case "DebugMode": _config.DebugMode = ParseBool(value, nameof(_config.DebugMode)); return true;
                 case "DebugShowReasoning": _config.DebugShowReasoning = ParseBool(value, nameof(_config.DebugShowReasoning)); return true;
+                case "Search.Provider": _config.Search.Provider = value.Trim().ToLowerInvariant(); return true;
+                case "Search.SearxngBaseUrl": _config.Search.SearxngBaseUrl = value.Trim(); return true;
+                case "Search.TavilyApiKey": _config.Search.TavilyApiKey = value.Trim(); return true;
+                case "Search.TavilyDailyLimit": _config.Search.TavilyDailyLimit = ParseNonNegativeInt(value, nameof(_config.Search.TavilyDailyLimit)); return true;
+                case "Search.TimeoutSeconds": _config.Search.TimeoutSeconds = ParseInt(value, nameof(_config.Search.TimeoutSeconds)); return true;
+                case "Search.MaxResults": _config.Search.MaxResults = ParseInt(value, nameof(_config.Search.MaxResults)); return true;
                 case "MarkdownReply": _config.MarkdownReply = ParseBool(value, nameof(_config.MarkdownReply)); return true;
                 default:
                     error = $"未知参数：{key}。可用 /admin list 查看全部参数。";
@@ -331,6 +337,7 @@ public class RuntimeConfig
         "Fun.EnableOsm", "Fun.OsmProbability",
         "Fun.EnableReverseAt", "Fun.ReverseAtProbability",
         "Fun.EnableCallBrother", "Fun.CallBrotherProbability", "Fun.CallBrotherDelaySeconds",
-        "PersonaPath", "SayNoPath", "PublicBaseUrl", "DebugMode", "DebugShowReasoning", "MarkdownReply"
+        "PersonaPath", "SayNoPath", "PublicBaseUrl", "DebugMode", "DebugShowReasoning", "MarkdownReply",
+        "Search.Provider", "Search.SearxngBaseUrl", "Search.TavilyApiKey", "Search.TavilyDailyLimit", "Search.TimeoutSeconds", "Search.MaxResults"
     ];
 }

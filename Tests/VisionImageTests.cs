@@ -438,19 +438,24 @@ public class VisionImageTests
         return (sp, llmBodies);
     }
 
-    /// <summary>关闭随机互动与随机插嘴，保证测试确定性（复读会阻断工作流、反向艾特会插入发送）</summary>
+    /// <summary>
+    /// 关闭随机互动与随机插嘴，保证测试确定性：
+    /// 复读/叫哥/OSM/反驳不命中时会 HandledAndBlock 直接阻断工作流（不调 LLM），
+    /// 注意布尔开关必须用 "false"（ParseBool 不接受 "0"），概率项才用 "0"。
+    /// </summary>
     private static async Task DisableFunAsync(ServiceProvider sp)
     {
         var config = sp.GetRequiredService<RuntimeConfig>();
         foreach (string key in new[]
         {
             "Fun.EnableReplyYes", "Fun.EnableReplyNo", "Fun.EnableRepeat",
-            "Fun.EnableOsm", "Fun.EnableReverseAt", "Fun.EnableCallBrother",
-            "Trigger.RandomChatProbability"
+            "Fun.EnableOsm", "Fun.EnableReverseAt", "Fun.EnableCallBrother"
         })
         {
-            await config.SetAsync(key, "0");
+            string? error = await config.SetAsync(key, "false");
+            Assert.Null(error);
         }
+        Assert.Null(await config.SetAsync("Trigger.RandomChatProbability", "0"));
     }
 
     /// <summary>按真实消息管线的同一装配方式构造处理器</summary>

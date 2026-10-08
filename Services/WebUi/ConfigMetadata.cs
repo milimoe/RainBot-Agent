@@ -69,6 +69,14 @@ public static class ConfigMetadata
         new("Fun.CallBrotherProbability", "随机互动", "叫哥概率%", "0 永不，100 必中", "number", 0, 100),
         new("Fun.CallBrotherDelaySeconds", "随机互动", "叫哥延迟（秒）", "延迟后发送", "number", 1, 3600),
 
+        // ---------- 搜索 ----------
+        new("Search.Provider", "搜索", "搜索后端", "bing = cn.bing.com（默认，国内可直连）；tavily = 商业 API（需填 Key，有每日额度，用尽自动回退 bing）；duckduckgo = 部分网络不可达；searxng = 自建实例（需填基址）", "text"),
+        new("Search.TavilyApiKey", "搜索", "Tavily API Key", "app.tavily.com 获取（tvly- 开头）；Provider 选 tavily 时使用，未填则回退 bing", "text"),
+        new("Search.TavilyDailyLimit", "搜索", "Tavily 每日上限", "每日调用次数上限（按服务器本地日期，跨天自动重置）；达到上限自动回退 bing；0 = 不限制", "number", 0, 100000),
+        new("Search.SearxngBaseUrl", "搜索", "SearXNG 基址", "后端选 searxng 时必填，如 https://searx.example.com（实例需开启 json 输出格式）", "text"),
+        new("Search.TimeoutSeconds", "搜索", "搜索超时（秒）", "单次搜索超时；网络不通时快速失败，避免拖住整条回复", "number", 3, 60),
+        new("Search.MaxResults", "搜索", "结果条数", "进上下文的搜索结果条数", "number", 1, 8),
+
         // ---------- 通用 ----------
         new("PublicBaseUrl", "通用", "公网域名", "静态资源基址（如 https://bot.example.com），只需设置一次；OSM 梗图等自动以「域名 + wwwroot 相对路径」对外提供，留空则相关功能禁用", "text"),
         new("DebugMode", "通用", "调试模式", "开启后在每次对话输出末尾追加一行「x tokens, x tools」统计（输入+输出 token 总数、工具调用次数），排查成本与工具行为用", "bool"),
@@ -81,5 +89,5 @@ public static class ConfigMetadata
     public static ConfigMeta? Find(string key)
         => All.FirstOrDefault(m => string.Equals(m.Key, key, StringComparison.OrdinalIgnoreCase));
 
-    public static IReadOnlyList<string> Sections => ["LLM", "触发", "上下文", "风控", "随机互动", "通用"];
+    public static IReadOnlyList<string> Sections => ["LLM", "触发", "上下文", "风控", "随机互动", "搜索", "通用"];
 }
