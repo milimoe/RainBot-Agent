@@ -59,6 +59,15 @@ const COMMAND_GROUPS = [
         desc: '查看本群消息量与缓存命中率',
       },
       {
+        cmd: '/context',
+        desc: '查看当前会话最近一次模型请求的窗口概览：估算 tokens、治理水位占用、历史条数及 A–F 区块大小。仅管理员可用，不调用模型。',
+      },
+      {
+        cmd: '/context full [页码]',
+        desc: '分页查看最近请求的脱敏上下文全文，包括工具调用和结果；默认第 1 页。图片只显示占位。仅管理员可用。',
+        example: '/context full 2',
+      },
+      {
         cmd: '/admin admin add|remove openid',
         alias: '',
         desc: '维护管理员列表（openid 可在聊天页群友昵称旁看到）',

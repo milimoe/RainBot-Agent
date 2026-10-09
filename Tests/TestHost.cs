@@ -58,6 +58,7 @@ public static class TestHost
         services.AddSingleton<ToolRegistry>();
         services.AddSingleton<DeepSeekClient>();
         services.AddSingleton<ReasoningRecorder>();
+        services.AddSingleton<ContextRecorder>();
         services.AddSingleton<VisionImageLoader>();
         services.AddSingleton<ReActLoop>();
         services.AddSingleton<InputFilter>();

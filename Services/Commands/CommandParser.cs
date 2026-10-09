@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using RainBot.Models;
 using RainBot.Services.Bots;
 using RainBot.Services.Config;
+using RainBot.Services.Context;
 using RainBot.Services.Fun;
 using RainBot.Services.Llm;
 using RainBot.Services.Profile;
@@ -15,7 +16,7 @@ namespace RainBot.Services.Commands;
 /// - 管理员指令：/admin list | set | mute | unmute | stats | reasoning | admin add/remove | forget | help
 /// - /status：状态查看（管理员）
 /// </summary>
-public class CommandParser(RuntimeConfig config, GroupStateManager states, Database db, SayNoWordsService sayNoWords, OsmImageCatalog osmCatalog, ReasoningRecorder reasoningRecorder, BotInstanceStore botStore, ILogger<CommandParser> logger)
+public class CommandParser(RuntimeConfig config, GroupStateManager states, Database db, SayNoWordsService sayNoWords, OsmImageCatalog osmCatalog, ReasoningRecorder reasoningRecorder, BotInstanceStore botStore, ContextRecorder contextRecorder, ILogger<CommandParser> logger)
 {
     private readonly RuntimeConfig _config = config;
     private readonly GroupStateManager _states = states;
@@ -59,6 +60,7 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
         {
             "忘掉我" or "forgetme" => new ParsedCommand(CommandKind.ForgetMe),
             "status" => new ParsedCommand(CommandKind.Status),
+            "context" => new ParsedCommand(CommandKind.Context, args.FirstOrDefault()?.ToLowerInvariant(), args.Length > 1 ? string.Join(' ', args[1..]) : null),
             "fun" or "娱乐" => new ParsedCommand(CommandKind.FunStatus),
             "admin" => ParseAdmin(args),
             _ => null
@@ -105,13 +107,17 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
                 return await BuildStatusAsync(groupOpenId, botId);
 
+            case CommandKind.Context:
+                if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
+                return contextRecorder.View(groupOpenId, command.Key, command.Value);
+
             case CommandKind.FunStatus:
                 // 随机互动状态（所有人可查看）
                 return BuildFunStatusAsync();
 
             case CommandKind.AdminHelp:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
-                return "管理员指令：\n/admin list 查看参数\n/admin set 参数 值\n/admin mute [分钟] / unmute\n/admin stats\n/admin reasoning 查看最后的思维链\n/admin admin add|remove id（本实例管理员，QQ 官方填 openid / OneBot 填 QQ 号）\n/admin forget 短id\n/status";
+                return "管理员指令：\n/admin list 查看参数\n/admin set 参数 值\n/admin mute [分钟] / unmute\n/admin stats\n/admin reasoning 查看最后的思维链\n/context 查看最近请求的上下文窗口\n/context full [页码] 分页查看全文\n/admin admin add|remove id（本实例管理员，QQ 官方填 openid / OneBot 填 QQ 号）\n/admin forget 短id\n/status";
 
             case CommandKind.AdminList:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
@@ -301,6 +307,7 @@ public enum CommandKind
 {
     ForgetMe,
     Status,
+    Context,
     FunStatus,
     AdminHelp,
     AdminList,

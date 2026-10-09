@@ -106,7 +106,7 @@ public class WorkflowRunner(
 
             // LLM 无内容可说（空输出/调用失败）时一律静默跳过，任何触发类型都不发
             // 「想不出怎么接话题」这类被动兜底话术。
-            ReActResult result = await _reactLoop.RunAsync(compose.Messages, toolCtx, ct: ct);
+            ReActResult result = await _reactLoop.RunAsync(compose.Messages, toolCtx, ct: ct, compose: compose);
 
             // 4. 输出风控
             string? text = _outputFilter.Filter(result.Text);

@@ -8,6 +8,11 @@ export function shortId(id) {
   return id.length > 10 ? `${id.slice(0, 6)}…` : id;
 }
 
+/** 与服务端 UserIdentityResolver.ShortId 保持一致，仅用于群友身份。 */
+export function userShortId(id) {
+  return id ? `u${id.slice(0, 8)}` : '';
+}
+
 /** 会话键 → 对端原始 ID：去掉 {实例Id}: 前缀与私聊的 p 标记 */
 export function peerIdOf(group) {
   if (!group) return '';
@@ -50,7 +55,7 @@ export function colorOf(seed) {
 }
 
 export function displayNameOf(user) {
-  return user?.username || (user?.sender && user.sender.startsWith('u_webui_sim_') ? simNameOf(user.sender) : shortId(user?.sender || ''));
+  return user?.username?.trim() || (user?.sender && user.sender.startsWith('u_webui_sim_') ? simNameOf(user.sender) : userShortId(user?.sender || ''));
 }
 
 export function simNameOf(id) {

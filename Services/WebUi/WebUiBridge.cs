@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
 using RainBot.Models;
 using RainBot.Services.Storage;
+using RainBot.Services.Profile;
 
 namespace RainBot.Services.WebUi;
 
@@ -11,7 +12,7 @@ namespace RainBot.Services.WebUi;
 /// - 把群消息 / 机器人回复 / 连接状态发布到实时事件总线；
 /// - 机器人回复落库（messages 表 user_openid = BotMarker），供聊天页回看。
 /// </summary>
-public class WebUiBridge(WebUiEventBus bus, Database db, ILogger<WebUiBridge> logger)
+public class WebUiBridge(WebUiEventBus bus, Database db, UserIdentityResolver identities, ILogger<WebUiBridge> logger)
 {
     /// <summary>数据库 messages 表中标记"机器人回复"的 user_openid 哨兵值</summary>
     public const string BotMarker = "$bot";
@@ -60,15 +61,21 @@ public class WebUiBridge(WebUiEventBus bus, Database db, ILogger<WebUiBridge> lo
     public int SubscriberCount => _bus.SubscriberCount;
 
     /// <summary>群友消息进入处理链时推送（MessageProcessor 调用）</summary>
-    public void PublishMemberMessage(IncomingMessage message)
+    public async Task PublishMemberMessageAsync(IncomingMessage message)
     {
+        Dictionary<string, string> names = await identities.GetDisplayNamesAsync(message.GroupOpenId,
+            [message.SenderOpenId], [message.DisplayContent]);
+        string? nickname = !string.IsNullOrWhiteSpace(message.Username) ? message.Username.Trim() : names.GetValueOrDefault(message.SenderOpenId);
+        if (nickname != null) names[message.SenderOpenId] = nickname;
         Publish("message", new JsonObject
         {
             ["msgId"] = message.MsgId,
             ["group"] = message.GroupOpenId,
             ["sender"] = message.SenderOpenId,
-            ["username"] = message.Username,
-            ["content"] = message.Content,
+            ["username"] = nickname,
+            ["shortId"] = UserIdentityResolver.ShortId(message.SenderOpenId),
+            ["names"] = System.Text.Json.JsonSerializer.SerializeToNode(names),
+            ["content"] = message.DisplayContent,
             ["isAt"] = message.IsAtRobot,
             ["isAdmin"] = message.IsAdmin,
             ["time"] = message.ReceivedAt,

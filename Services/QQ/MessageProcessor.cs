@@ -100,9 +100,6 @@ public class MessageProcessor
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
 
-        // 0. 推送 WebUI（实时聊天页）
-        _webUi?.PublishMemberMessage(message);
-
         // 调试：处理入口（排查"收到消息却不回复"问题）
         if (_logger.IsEnabled(LogLevel.Debug))
         {
@@ -116,6 +113,8 @@ public class MessageProcessor
         {
             await _states.OnMessageAsync(message);
         }
+        // 建档、昵称学习后推送，实时与历史共用身份缓存。
+        if (_webUi != null) await _webUi.PublishMemberMessageAsync(message);
 
         // 2. 输入风控：@ 消息命中敏感内容 → 不回应（仅标记观察）；
         //    普通消息命中敏感内容 → 不回应 @ 时同样不参与随机插嘴（避免拿敏感话头开涮）

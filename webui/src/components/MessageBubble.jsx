@@ -1,10 +1,10 @@
-import { BOT_SENDER, displayNameOf, fmtFull, shortId } from '../lib/util.js';
+import { BOT_SENDER, displayNameOf, fmtFull, userShortId } from '../lib/util.js';
 import Avatar from './Avatar.jsx';
 
 /**
  * 把 <@openid>（新格式）或 <@!openid>（历史格式）富文本标签渲染为蓝色 @提及。
  */
-export function renderContent(content) {
+export function renderContent(content, names) {
   const text = (content || '').replace(/^\r?\n/, '');
   const parts = text.split(/(<@!?[^>]+>)/g);
   return parts.map((part, i) => {
@@ -12,7 +12,7 @@ export function renderContent(content) {
     if (m) {
       return (
         <span key={i} className="mention">
-          {`@${shortId(m[1])}`}
+          {`@${Object.hasOwn(names || {}, m[1]) ? names[m[1]] : userShortId(m[1])}`}
         </span>
       );
     }
@@ -26,7 +26,7 @@ export function renderContent(content) {
  */
 export default function MessageBubble({ msg, names }) {
   const isBot = msg.isBot || msg.sender === BOT_SENDER;
-  const name = isBot ? '雨' : names?.[msg.sender] || displayNameOf(msg);
+  const name = isBot ? '雨' : (Object.hasOwn(names || {}, msg.sender) ? names[msg.sender] : displayNameOf(msg));
   const timeStr = fmtFull(msg.time);
 
   return (
@@ -39,7 +39,7 @@ export default function MessageBubble({ msg, names }) {
           </span>
           {!isBot && !!msg.sender && (
             <span className="max-w-24 truncate font-mono text-[10px] text-qq-sub/70" title={`OpenID：${msg.sender}`}>
-              {shortId(msg.sender)}
+              {msg.shortId || userShortId(msg.sender)}
             </span>
           )}
           <span className="text-[10px] text-qq-sub/70">{timeStr}</span>
@@ -49,7 +49,7 @@ export default function MessageBubble({ msg, names }) {
             isBot ? 'bubble-out' : 'bubble-in'
           }`}
         >
-          {renderContent(msg.content)}
+          {renderContent(msg.content, names)}
         </div>
       </div>
     </div>

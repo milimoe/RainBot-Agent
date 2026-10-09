@@ -8,6 +8,7 @@ using RainBot.Services.Config;
 using RainBot.Services.Fun;
 using RainBot.Services.OneBot;
 using RainBot.Services.Persona;
+using RainBot.Services.Profile;
 using RainBot.Services.QQ;
 using RainBot.Services.Storage;
 using RainBot.Services.Trigger;
@@ -128,7 +129,7 @@ public static class WebUiApi
             List<(string Key, string Value, bool Overridden)> all = await config.ListAllAsync();
             return Results.Json(new
             {
-                items = all.Select(t => new
+                items = all.Where(t => ConfigMetadata.IsVisible(t.Key)).Select(t => new
                 {
                     key = t.Key,
                     value = t.Value,
@@ -277,17 +278,26 @@ public static class WebUiApi
         });
 
         // ---------- 聊天记录 ----------
-        api.MapGet("/groups/{groupId}/messages", async (string groupId, Database db, int? limit) =>
+        api.MapGet("/groups/{groupId}/messages", async (string groupId, Database db, UserIdentityResolver identities, int? limit) =>
         {
             int take = Math.Clamp(limit ?? 200, 1, 1000);
             List<StoredMessage> messages = await db.GetRecentMessagesAsync(groupId, take);
+            Dictionary<string, string> names = await identities.GetDisplayNamesAsync(groupId,
+                messages.Select(m => m.UserOpenId), messages.Select(m => m.Content));
+            // 私聊不建群友画像，刷新后用最新消息昵称快照兜底；群聊仍优先使用当前昵称。
+            foreach (StoredMessage message in messages.AsEnumerable().Reverse())
+                if (message.UserOpenId != WebUiBridge.BotMarker && !string.IsNullOrWhiteSpace(message.Nickname))
+                    names.TryAdd(message.UserOpenId, message.Nickname);
             return Results.Json(new
             {
                 group = groupId,
+                names,
                 messages = messages.Select(m => new
                 {
                     id = m.MsgId,
                     sender = m.UserOpenId,
+                    username = names.GetValueOrDefault(m.UserOpenId),
+                    shortId = UserIdentityResolver.ShortId(m.UserOpenId),
                     isBot = m.UserOpenId == WebUiBridge.BotMarker,
                     content = m.Content,
                     time = m.Time,

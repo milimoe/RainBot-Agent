@@ -111,6 +111,15 @@ public class BlockComposer(
         return new ComposeResult
         {
             Messages = messages,
+            BlockTokens = new Dictionary<string, int>
+            {
+                ["A 人设与规则"] = TokenEstimator.Estimate(blockA),
+                ["B 工具能力"] = TokenEstimator.Estimate(blockB),
+                ["C 群画像与记忆"] = TokenEstimator.Estimate(blockC),
+                ["D 群友锚点"] = TokenEstimator.Estimate(blockD),
+                ["E 历史消息"] = eTokens,
+                ["F 当前触发"] = fTokens
+            },
             HistoryCount = history.Count,
             HistoryDropped = dropped,
             EstimatedTokens = fixedTokens + eTokens + fTokens,
@@ -262,6 +271,7 @@ public class BlockComposer(
 /// <summary>组装结果</summary>
 public class ComposeResult
 {
+    public Dictionary<string, int> BlockTokens { get; init; } = [];
     public required List<ChatMessage> Messages { get; init; }
     public required string GroupOpenId { get; init; }
     public int HistoryCount { get; init; }

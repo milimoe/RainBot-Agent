@@ -15,6 +15,7 @@ const EMOJIS = ['😀', '😂', '🤣', '😊', '😘', '🥰', '🤔', '😴', 
  */
 export default function ChatWindow({ group, onGroupsChanged, onBack }) {
   const [messages, setMessages] = useState([]);
+  const [names, setNames] = useState({});
   const [loading, setLoading] = useState(true);
   const [typing, setTyping] = useState(false);
   const [sending, setSending] = useState(false);
@@ -29,6 +30,8 @@ export default function ChatWindow({ group, onGroupsChanged, onBack }) {
   const listRef = useRef(null);
   const stickRef = useRef(true); // 是否贴底
   const typingTimer = useRef(null);
+  const activeGroupRef = useRef(group?.group);
+  activeGroupRef.current = group?.group;
   const isSim = group?.group === SIM_GROUP;
   const canSim = isSim || group?.simEnabled;
 
@@ -46,18 +49,28 @@ export default function ChatWindow({ group, onGroupsChanged, onBack }) {
     setLoading(true);
     try {
       const data = await api(`/api/webui/groups/${encodeURIComponent(group.group)}/messages?limit=300`);
-      const list = data.messages.map((m) => ({ ...m, username: undefined }));
-      idsRef.current = new Set(list.filter((m) => m.id).map((m) => m.id));
-      setMessages(list);
+      if (activeGroupRef.current !== group.group) return;
+      const list = data.messages || [];
+      setNames((previous) => ({ ...(data.names || {}), ...previous }));
+      setMessages((previous) => {
+        const loadedIds = new Set(list.filter((m) => m.id).map((m) => m.id));
+        const merged = [...list, ...previous.filter((m) => !m.id || !loadedIds.has(m.id))]
+          .sort((a, b) => new Date(a.time) - new Date(b.time));
+        idsRef.current = new Set(merged.filter((m) => m.id).map((m) => m.id));
+        return merged;
+      });
       stickRef.current = true;
     } catch (e) {
       toast(e.message, 'error');
     } finally {
-      setLoading(false);
+      if (activeGroupRef.current === group.group) setLoading(false);
     }
   }, [group?.group]);
 
   useEffect(() => {
+    setMessages([]);
+    setNames({});
+    idsRef.current = new Set();
     setMenuOpen(false);
     setEmojiOpen(false);
     setInput('');
@@ -72,7 +85,8 @@ export default function ChatWindow({ group, onGroupsChanged, onBack }) {
       const d = ev.data || {};
       if (!d.group || d.group !== group?.group) return;
       if (ev.type === 'message') {
-        appendMessage({ id: d.msgId, sender: d.sender, username: d.username, content: d.content, isBot: false, time: d.time });
+        setNames((previous) => ({ ...previous, ...(d.names || {}), ...(d.username ? { [d.sender]: d.username } : {}) }));
+        appendMessage({ id: d.msgId, sender: d.sender, username: d.username, shortId: d.shortId, content: d.content, isBot: false, time: d.time });
         if (isSim || d.simulated) setTyping(true);
         if (typingTimer.current) clearTimeout(typingTimer.current);
         typingTimer.current = setTimeout(() => setTyping(false), 90000);
@@ -166,12 +180,12 @@ export default function ChatWindow({ group, onGroupsChanged, onBack }) {
       }
       nodes.push(
         <div key={m.id || `${m.sender}-${m.time}`} className="mb-3">
-          <MessageBubble msg={m} />
+          <MessageBubble msg={m} names={names} />
         </div>
       );
     }
     return nodes;
-  }, [messages]);
+  }, [messages, names]);
 
   if (!group) {
     return <div className="flex flex-1 items-center justify-center bg-qq-panel text-sm text-qq-sub">选择一个群开始查看</div>;

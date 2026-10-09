@@ -30,10 +30,11 @@ public class GroupStateManager
     /// <summary>群消息到达：更新统计（休眠计数）与静默计时</summary>
     public async Task OnMessageAsync(IncomingMessage message)
     {
+        if (!message.IsFromBot && !message.SkipSideEffects)
+            _identities.LearnNickname(message.GroupOpenId, message.SenderOpenId, message.Username);
         if (!message.IsFromBot && !message.IsPrivate && !message.SkipSideEffects && !string.IsNullOrWhiteSpace(message.SenderOpenId))
         {
             await _db.BumpUserActivityAsync(message.GroupOpenId, message.SenderOpenId, message.Username, message.ReceivedAt);
-            _identities.LearnNickname(message.GroupOpenId, message.SenderOpenId, message.Username);
             _anchors.Invalidate(message.GroupOpenId);
         }
         GroupState state = GetOrCreate(message.GroupOpenId);

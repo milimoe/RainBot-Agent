@@ -136,8 +136,26 @@ public class Database
             """;
         await cmd.ExecuteNonQueryAsync();
         await EnsureUserColumnsAsync(conn);
+        await EnsureMessageNicknameAsync(conn);
         await MigrateToBotNamespaceAsync(conn);
         _logger.LogInformation("SQLite 数据库初始化完成");
+    }
+
+    private static async Task EnsureMessageNicknameAsync(SqliteConnection conn)
+    {
+        bool exists = false;
+        await using (SqliteCommand info = conn.CreateCommand())
+        {
+            info.CommandText = "PRAGMA table_info(messages);";
+            await using SqliteDataReader reader = await info.ExecuteReaderAsync();
+            while (await reader.ReadAsync()) if (reader.GetString(1) == "nickname") exists = true;
+        }
+        if (!exists)
+        {
+            await using SqliteCommand alter = conn.CreateCommand();
+            alter.CommandText = "ALTER TABLE messages ADD COLUMN nickname TEXT NOT NULL DEFAULT '';";
+            await alter.ExecuteNonQueryAsync();
+        }
     }
 
     private static async Task EnsureUserColumnsAsync(SqliteConnection conn)
@@ -533,11 +551,12 @@ public class Database
         return await cmd.ExecuteNonQueryAsync() == 1;
     }
 
-    public async Task InsertMessageAsync(string msgId, string groupOpenId, string userOpenId, string content, bool isAt, DateTimeOffset time)
+    public async Task InsertMessageAsync(string msgId, string groupOpenId, string userOpenId, string content, bool isAt, DateTimeOffset time, string? nickname = null)
     {
         await using SqliteConnection conn = await OpenAsync();
         await using SqliteCommand cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT OR IGNORE INTO messages (msg_id, group_openid, user_openid, content, is_at, msg_time) VALUES ($id, $g, $u, $c, $at, $t);";
+        cmd.CommandText = "INSERT OR IGNORE INTO messages (msg_id, group_openid, user_openid, content, is_at, msg_time, nickname) VALUES ($id, $g, $u, $c, $at, $t, $nickname);";
+        cmd.Parameters.AddWithValue("$nickname", nickname?.Trim() ?? "");
         cmd.Parameters.AddWithValue("$id", msgId);
         cmd.Parameters.AddWithValue("$g", groupOpenId);
         cmd.Parameters.AddWithValue("$u", userOpenId);
@@ -552,7 +571,7 @@ public class Database
         List<StoredMessage> result = [];
         await using SqliteConnection conn = await OpenAsync();
         await using SqliteCommand cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT msg_id, user_openid, content, is_at, msg_time FROM messages WHERE group_openid = $g ORDER BY id DESC LIMIT $limit;";
+        cmd.CommandText = "SELECT msg_id, user_openid, content, is_at, msg_time, nickname FROM messages WHERE group_openid = $g ORDER BY id DESC LIMIT $limit;";
         cmd.Parameters.AddWithValue("$g", groupOpenId);
         cmd.Parameters.AddWithValue("$limit", limit);
         await using SqliteDataReader reader = await cmd.ExecuteReaderAsync();
@@ -561,6 +580,7 @@ public class Database
             result.Add(new StoredMessage
             {
                 MsgId = reader.GetString(0),
+                Nickname = reader.GetString(5),
                 UserOpenId = reader.GetString(1),
                 Content = reader.GetString(2),
                 IsAt = reader.GetInt32(3) != 0,
@@ -987,6 +1007,7 @@ public class UserProfile
 /// <summary>存储的历史消息</summary>
 public class StoredMessage
 {
+    public string Nickname { get; set; } = "";
     public required string MsgId { get; set; }
     public required string UserOpenId { get; set; }
     public required string Content { get; set; }

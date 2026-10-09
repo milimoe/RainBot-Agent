@@ -6,6 +6,9 @@ public sealed record ConfigMeta(string Key, string Section, string Label, string
 /// <summary>全部可热改参数的元数据目录（键名与 RuntimeConfig.AllKeys 对应）</summary>
 public static class ConfigMetadata
 {
+    /// <summary>路径保留后端兼容，仅隐藏 WebUI 日常配置入口。</summary>
+    public static bool IsVisible(string key) => !key.Equals("PromptPath", StringComparison.OrdinalIgnoreCase)
+        && !key.Equals("PersonaPath", StringComparison.OrdinalIgnoreCase);
     /// <summary>类型：text / number / double / percent / bool / secret / stringlist</summary>
     public static readonly IReadOnlyList<ConfigMeta> All =
     [

@@ -28,6 +28,19 @@ public sealed class UserIdentityResolver(Database db)
         return string.IsNullOrWhiteSpace(profile?.Nickname) ? null : profile.Nickname;
     }
 
+    /// <summary>供 WebUI 历史和实时消息复用相同的群隔离昵称缓存。</summary>
+    public async Task<Dictionary<string, string>> GetDisplayNamesAsync(string groupOpenId, IEnumerable<string> senders, IEnumerable<string> contents)
+    {
+        HashSet<string> ids = new(senders.Where(s => !string.IsNullOrWhiteSpace(s) && s != WebUi.WebUiBridge.BotMarker), StringComparer.Ordinal);
+        foreach (string content in contents)
+            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(content, @"<@!?([^>]+)>"))
+                ids.Add(match.Groups[1].Value);
+        Dictionary<string, string> names = new(StringComparer.Ordinal);
+        foreach (string id in ids)
+            if (await GetNicknameAsync(groupOpenId, id) is string nickname) names[id] = nickname;
+        return names;
+    }
+
     public async Task<ResolutionResult> ResolveAsync(string groupOpenId, string input)
     {
         if (string.IsNullOrWhiteSpace(input)) return new(null, [], "请提供群友昵称或标识。");

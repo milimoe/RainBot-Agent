@@ -39,7 +39,7 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
                 list.RemoveFirst(); // 头部整条丢弃
             }
         }
-        await _db.InsertMessageAsync(message.MsgId, message.GroupOpenId, message.SenderOpenId, content, message.IsAtRobot, message.ReceivedAt);
+        await _db.InsertMessageAsync(message.MsgId, message.GroupOpenId, message.SenderOpenId, content, message.IsAtRobot, message.ReceivedAt, message.Username);
         await _db.TrimHistoryAsync(message.GroupOpenId, _config.Config.Context.MaxHistoryPerGroup);
     }
 

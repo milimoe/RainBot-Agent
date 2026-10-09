@@ -1,4 +1,5 @@
 using RainBot.Models;
+using RainBot.Services.Context;
 using RainBot.Services.Config;
 using RainBot.Services.Tools;
 
@@ -10,7 +11,7 @@ namespace RainBot.Services.Llm;
 /// 轮次上限防死循环；触顶时补一次 tool_choice="none" 的收口请求，让模型基于已有工具结果作答；
 /// 异常/空输出返回空文本，由调用方静默跳过——绝不编造「想不出怎么接话题」之类的兜底话术。
 /// </summary>
-public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, ToolRegistry toolRegistry, ReasoningRecorder reasoningRecorder, ILogger<ReActLoop> logger)
+public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, ToolRegistry toolRegistry, ReasoningRecorder reasoningRecorder, ContextRecorder contextRecorder, ILogger<ReActLoop> logger)
 {
     private readonly RuntimeConfig _config = config;
     private readonly DeepSeekClient _deepSeekClient = deepSeekClient;
@@ -19,7 +20,7 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
     private readonly ILogger<ReActLoop> _logger = logger;
 
     /// <summary>执行一次完整工作流，返回最终回复文本；无内容可说时 Text 为空串，由调用方静默跳过</summary>
-    public async Task<ReActResult> RunAsync(IReadOnlyList<ChatMessage> messages, ToolExecutionContext context, CancellationToken ct = default)
+    public async Task<ReActResult> RunAsync(IReadOnlyList<ChatMessage> messages, ToolExecutionContext context, CancellationToken ct = default, ComposeResult? compose = null)
     {
         LlmConfig llm = _config.Config.Llm;
         int maxRounds = Math.Max(1, llm.MaxToolRounds);
@@ -44,6 +45,7 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
             ChatResult result;
             try
             {
+                contextRecorder.Record(context.GroupOpenId, working, tools, compose, _config.Config.Context.WatermarkTokens);
                 result = await _deepSeekClient.ChatAsync(working, tools, maxTokens: llm.ToolRoundMaxTokens, temperature: temperature, ct: ct);
             }
             catch (OperationCanceledException)
@@ -100,6 +102,7 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
             working.Add(ChatMessage.User($"[系统] 工具调用轮次已用尽（已调用 {toolCallCount} 次）。请直接基于以上工具结果给出最终回复，不要再请求调用工具；信息不足就照实简短说明。"));
             try
             {
+                contextRecorder.Record(context.GroupOpenId, working, tools, compose, _config.Config.Context.WatermarkTokens);
                 ChatResult closing = await _deepSeekClient.ChatAsync(
                     working, tools, maxTokens: ClosingMaxTokens(llm), temperature: llm.Temperature, toolChoice: "none", ct: ct);
                 lastUsage = closing.Usage;
