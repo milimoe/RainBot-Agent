@@ -33,7 +33,13 @@ public class RainConfig
     /// <summary>存储配置</summary>
     public StorageConfig Storage { get; set; } = new();
 
-    /// <summary>人设文件路径（相对运行目录）</summary>
+    /// <summary>群友画像配额与艾特活跃窗口</summary>
+    public ProfileConfig Profile { get; set; } = new();
+
+    /// <summary>默认模板的提示词 JSON 路径（首次运行生成，热重载）</summary>
+    public string PromptPath { get; set; } = "Persona/prompt.json";
+
+    /// <summary>默认人设模板路径（相对运行目录）</summary>
     public string PersonaPath { get; set; } = "Persona/persona.md";
 
     /// <summary>SayNo 反驳不词汇表 JSON 路径（相对运行目录，缺失时自动生成默认词表，编辑后热重载）</summary>
@@ -149,6 +155,9 @@ public class LlmConfig
 
 public class TriggerConfig
 {
+    /// <summary>积压消息最大时效，超过后仅统计入库；0 禁用。</summary>
+    public int BacklogMaxAgeSeconds { get; set; } = 120;
+
     /// <summary>被动触发后的群冷却期（秒），冷却期内无视 @ 消息但仍入队统计</summary>
     public int PassiveCooldownSeconds { get; set; } = 30;
 
@@ -319,4 +328,10 @@ public class FunConfig
     public int CallBrotherDelaySeconds { get; set; } = 30;
     /// <summary>叫哥忽略用户 openid（完整或前 8 位短 ID）</summary>
     public List<string> CallBrotherIgnoreOpenIds { get; set; } = [];
+}
+
+public class ProfileConfig
+{
+    public int DailyUpdateLimit { get; set; } = 1;
+    public int ActiveWindowHours { get; set; } = 168;
 }

@@ -15,6 +15,7 @@ function emptyForm() {
     name: '',
     platform: 'QqOfficial',
     enabled: true,
+    personaName: '',
     personaPath: '',
     admins: [],
     qq: { appId: '', secret: '', useSandbox: false, selfOpenId: '' },
@@ -36,6 +37,7 @@ function toForm(b) {
     name: b.name || '',
     platform: b.platform || 'QqOfficial',
     enabled: b.enabled !== false,
+    personaName: b.personaName === 'default' ? '' : b.personaName || '',
     personaPath: b.personaPath || '',
     admins: Array.isArray(b.admins) ? b.admins : [],
     qq: { ...base.qq, ...(b.qq || {}) },
@@ -164,6 +166,13 @@ export default function BotsPage() {
   const [form, setForm] = useState(emptyForm());
   const [isNew, setIsNew] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [personas, setPersonas] = useState([]);
+  const [personasError, setPersonasError] = useState('');
+
+  useEffect(() => {
+    api('/api/webui/personas').then((result) => setPersonas(result.personas || []))
+      .catch((e) => setPersonasError(e.message));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -352,13 +361,17 @@ export default function BotsPage() {
                     ))}
                   </select>
                 </Field>
-                <Field label="人设文件（留空用全局）">
-                  <input
+                <Field label="关联人设" hint={personasError ? `人设列表加载失败：${personasError}` : '在人设页管理文档与机器人名称；保存实例后生效。'}>
+                  <select
                     className={inputCls}
-                    value={form.personaPath}
-                    onChange={(e) => saved('personaPath', e.target.value)}
-                    placeholder="Persona/persona.md"
-                  />
+                    value={form.personaName || (form.personaPath ? '__legacy_path__' : '')}
+                    onChange={(e) => setForm((f) => ({ ...f, personaName: e.target.value, personaPath: '' }))}
+                  >
+                    <option value="">默认模板（persona.md）</option>
+                    {form.personaPath && !form.personaName && <option value="__legacy_path__">旧路径：{form.personaPath}</option>}
+                    {form.personaName && !personas.some((p) => p.name === form.personaName) && <option value={form.personaName}>{form.personaName}（未找到）</option>}
+                    {personas.filter((p) => !p.isDefault).map((p) => <option key={p.name} value={p.name}>{p.name} · {p.botName || p.settings?.botName || '未设置名称'}</option>)}
+                  </select>
                 </Field>
                 <Field label="启用">
                   <div className="py-1">

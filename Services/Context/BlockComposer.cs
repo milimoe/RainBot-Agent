@@ -26,6 +26,8 @@ public class BlockComposer(
     HistoryStore historyStore,
     VisionImageLoader visionLoader,
     RuntimeConfig config,
+    UserIdentityResolver identities,
+    Database database,
     ILogger<BlockComposer> logger)
 {
     private readonly PersonaLoader _personaLoader = personaLoader;
@@ -54,16 +56,19 @@ public class BlockComposer(
         int anchorCount = cfg.MaxAnchorCount;
 
         // 1. 固定块 A-D（低/中缓存区）
-        string blockA = _personaLoader.GetSystemPrompt();
+        string blockA = _personaLoader.GetSystemPrompt(ctx.BotId);
         string blockB = ToolListHeader + _toolRegistry.GetSchemaJson();
         GroupProfile profile = await _states.GetProfileAsync(ctx.GroupOpenId);
-        string blockC = BuildGroupProfileBlock(profile);
+        string blockC = BuildGroupProfileBlock(profile, await database.GetRecentDistillSummariesAsync(ctx.GroupOpenId));
         string blockD = await _anchorManager.GetAnchorsTextAsync(ctx.GroupOpenId, anchorCount);
 
         int fixedTokens = TokenEstimator.Estimate(blockA) + TokenEstimator.Estimate(blockB) + TokenEstimator.Estimate(blockC) + TokenEstimator.Estimate(blockD);
 
         // 2. Block E：历史预算 = min(历史预算, 水位 - 固定块 - 当前块 - 余量)
-        string blockF = BuildCurrentBlock(ctx);
+        string? senderNickname = ctx.SenderNickname;
+        if (!string.IsNullOrWhiteSpace(ctx.SenderOpenId))
+            senderNickname = await identities.GetNicknameAsync(ctx.GroupOpenId, ctx.SenderOpenId) ?? senderNickname;
+        string blockF = BuildCurrentBlock(ctx, senderNickname);
         int fTokens = TokenEstimator.Estimate(blockF);
         int margin = 2000;
         int eBudget = Math.Min(
@@ -71,7 +76,7 @@ public class BlockComposer(
             Math.Max(1000, cfg.WatermarkTokens - fixedTokens - fTokens - margin));
 
         List<HistoryEntry> history = _historyStore.GetRecent(ctx.GroupOpenId, eBudget, out int dropped);
-        string blockE = BuildHistoryBlock(history);
+        string blockE = await BuildHistoryBlockAsync(ctx.GroupOpenId, history);
         int eTokens = TokenEstimator.Estimate(blockE);
 
         // 3. 压缩前防御第二步：固定块异常巨大（几乎不可能）导致超水位时，缩减锚点
@@ -153,7 +158,7 @@ public class BlockComposer(
         return ChatMessage.UserWithParts(parts);
     }
 
-    private static string BuildGroupProfileBlock(GroupProfile profile)
+    private static string BuildGroupProfileBlock(GroupProfile profile, IReadOnlyList<string> summaries)
     {
         StringBuilder sb = new("[群画像]\n");
         sb.AppendLine($"群类型：{(string.IsNullOrWhiteSpace(profile.Type) ? "未知" : profile.Type)}");
@@ -162,10 +167,12 @@ public class BlockComposer(
         {
             sb.AppendLine($"群记忆：{profile.Summary}");
         }
+        if (summaries.Count > 0)
+            sb.AppendLine("历史蒸馏记忆：\n" + string.Join("\n", summaries));
         return sb.ToString();
     }
 
-    private static string BuildHistoryBlock(List<HistoryEntry> history)
+    private async Task<string> BuildHistoryBlockAsync(string groupOpenId, List<HistoryEntry> history)
     {
         if (history.Count == 0)
         {
@@ -177,15 +184,28 @@ public class BlockComposer(
             string time = entry.Time.ToLocalTime().ToString("HH:mm");
             string content = CleanContent(entry.Content);
             if (content.Length > 200) content = content[..200] + "…";
-            sb.AppendLine($"[{time}] u{AnchorManager.ShortId(entry.UserOpenId)}: {content}");
+            string? nickname = await identities.GetNicknameAsync(groupOpenId, entry.UserOpenId) ?? entry.Nickname;
+            string speaker = string.IsNullOrWhiteSpace(nickname) ? UserIdentityResolver.ShortId(entry.UserOpenId) : $"{nickname}({UserIdentityResolver.ShortId(entry.UserOpenId)})";
+            sb.AppendLine($"[{time}] {speaker}: {content}");
         }
         return sb.ToString();
     }
 
-    private string BuildCurrentBlock(TriggerContext ctx)
+    private string BuildCurrentBlock(TriggerContext ctx, string? senderNickname)
     {
         StringBuilder sb = new("[当前]\n");
         sb.AppendLine($"触发原因：{ctx.Reason}");
+        if (!string.IsNullOrWhiteSpace(ctx.SenderOpenId))
+        {
+            sb.AppendLine($"当前触发者：{senderNickname ?? "群友"}({UserIdentityResolver.ShortId(ctx.SenderOpenId)})");
+            sb.AppendLine($"触发者完整标识：{ctx.SenderOpenId}（仅供工具参数，禁止写入回复正文）");
+        }
+        if (ctx.PendingMessages.Count > 0)
+        {
+            sb.AppendLine("本批待回应消息（请合并成一次自然回复）：");
+            foreach (PendingSpeaker pending in ctx.PendingMessages)
+                sb.AppendLine($"{pending.Nickname ?? "群友"}({UserIdentityResolver.ShortId(pending.OpenId)}): {CleanContent(pending.Content)}");
+        }
         if (!string.IsNullOrWhiteSpace(ctx.RecalledProfile))
         {
             sb.AppendLine($"相关群友画像：{ctx.RecalledProfile}");

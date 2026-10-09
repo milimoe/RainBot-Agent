@@ -22,6 +22,10 @@ public static class ConfigMetadata
         new("Llm.MaxOutputChars", "LLM", "输出最大字符", "超出截断", "number", 1, 4000),
         new("Llm.EnableVision", "LLM", "视觉识图", "开启后带图消息会把图片内联进多模态请求（DeepSeek 视觉格式，支持 JPEG/PNG/GIF/WebP，单图 ≤8MB）；模型不支持图片时关闭，否则该轮请求会失败", "bool"),
 
+        new("PromptPath", "通用", "默认提示词路径", "默认人设的提示词配置 JSON，保存后热重载", "text"),
+        new("Profile.DailyUpdateLimit", "画像", "每日画像更新配额", "每群每用户每日更新上限；0 禁止普通对话更新，暖群不受限", "number", 0, 100),
+        new("Profile.ActiveWindowHours", "画像", "身份活跃窗口（小时）", "艾特工具仅允许本群最近活跃用户", "number", 1, 8760),
+        new("Trigger.BacklogMaxAgeSeconds", "触发", "积压消息最大时效（秒）", "超时消息仅入库统计，不触发回复；0 禁用", "number", 0, 86400),
         // ---------- 触发 ----------
         new("Trigger.PassiveCooldownSeconds", "触发", "被动冷却（秒）", "被动触发后群冷却期，冷却期内 @ 消息不唤醒", "number", 1, 3600),
         new("Trigger.ImageLookbackSeconds", "触发", "图片回溯（秒）", "触发消息没带图时向前回溯触发者本人最近一张图一起识图，覆盖「先发图、再 @ 机器人分析」；0 = 关闭", "number", 0, 3600),
@@ -89,5 +93,5 @@ public static class ConfigMetadata
     public static ConfigMeta? Find(string key)
         => All.FirstOrDefault(m => string.Equals(m.Key, key, StringComparison.OrdinalIgnoreCase));
 
-    public static IReadOnlyList<string> Sections => ["LLM", "触发", "上下文", "风控", "随机互动", "搜索", "通用"];
+    public static IReadOnlyList<string> Sections => ["LLM", "画像", "触发", "上下文", "风控", "随机互动", "搜索", "通用"];
 }

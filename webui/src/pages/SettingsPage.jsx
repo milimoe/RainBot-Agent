@@ -4,15 +4,15 @@ import { Badge, toast } from '../components/ui.jsx';
 import { IconPlus, IconX, IconLock } from '../components/Icons.jsx';
 
 /**
- * 设置页：人设（热重载）/ SayNo 词表 / OSM 梗图 / 访问安全。
+ * 设置页：SayNo 词表 / OSM 梗图 / 访问安全。
  * 管理员已按机器人实例维护，请在「机器人」页编辑（不同机器人下同一 QQ 用户的 openid 不同）。
  */
 export default function SettingsPage({ boot, onAuthFail }) {
   return (
     <div className="qq-scroll h-full min-w-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl space-y-5 px-6 py-6">
-        <PageTitle title="设置" desc="人设与词表保存后即时热重载；机器人凭据与管理员请到「机器人」页按实例维护。" />
-        <PersonaCard onAuthFail={onAuthFail} />
+        <PageTitle title="设置" desc="词表保存后即时热重载；人设请到「人设」页维护，机器人凭据与管理员请到「机器人」页按实例维护。" />
+
         <SayNoCard onAuthFail={onAuthFail} />
         <OsmCard onAuthFail={onAuthFail} />
         <SecurityCard boot={boot} />
@@ -42,71 +42,6 @@ function Card({ title, desc, children, right }) {
       </div>
       <div className="p-4">{children}</div>
     </div>
-  );
-}
-
-// ---------- 人设 ----------
-
-function PersonaCard({ onAuthFail }) {
-  const [data, setData] = useState({ path: '', content: '' });
-  const [loaded, setLoaded] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const d = await api('/api/webui/settings/persona');
-      setData(d);
-      setLoaded(true);
-      setDirty(false);
-    } catch (e) {
-      if (e instanceof AuthError) onAuthFail?.();
-      else toast(e.message, 'error');
-    }
-  }, [onAuthFail]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await api('/api/webui/settings/persona', { method: 'PUT', body: { content: data.content } });
-      toast('人设已保存（热重载生效）', 'success');
-      setDirty(false);
-    } catch (e) {
-      toast(e.message, 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Card
-      title="👤 人设（Persona）"
-      desc={loaded ? `文件：${data.path} · 保存后即时热重载（Block A 前缀会变，缓存命中率短期下降属正常）` : '加载中…'}
-      right={
-        <button
-          className="rounded-md bg-qq-blue px-3 py-1 text-xs text-white hover:bg-qq-blue-deep disabled:opacity-40"
-          onClick={save}
-          disabled={!dirty || saving}
-        >
-          {saving ? '保存中…' : '保存人设'}
-        </button>
-      }
-    >
-      <textarea
-        value={data.content}
-        onChange={(e) => {
-          setData((d) => ({ ...d, content: e.target.value }));
-          setDirty(true);
-        }}
-        rows={16}
-        className="qq-scroll w-full resize-y rounded-lg border border-qq-border bg-qq-bg/50 p-3 font-mono text-[12.5px] leading-5 outline-none focus:border-qq-blue focus:ring-1 focus:ring-qq-blue/30"
-        placeholder="# 雨&#10;你是雨，一个温柔灵动的 QQ 群聊机器人。"
-      />
-    </Card>
   );
 }
 

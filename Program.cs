@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using RainBot.Models;
-using RainBot.Services.Commands;using RainBot.Services.Config;
+using RainBot.Services.Commands;
+using RainBot.Services.Config;
 using RainBot.Services.Context;
 using RainBot.Services.Llm;
 using RainBot.Services.Persona;
@@ -73,11 +74,16 @@ builder.Services.AddSingleton<ReasoningRecorder>(); // 调试模式：按群记�
 builder.Services.AddSingleton<VisionImageLoader>(); // 视觉识图：图片下载到内存并转 base64（不落盘、无需清理）
 builder.Services.AddSingleton<ReActLoop>();
 builder.Services.AddSingleton<CacheMonitor>();
+builder.Services.AddSingleton<PromptSettingsService>();
+builder.Services.AddSingleton<PersonaCatalog>();
+builder.Services.AddSingleton<UserIdentityResolver>();
+builder.Services.AddSingleton<InteractionTools>();
 builder.Services.AddSingleton<PersonaLoader>();
 builder.Services.AddSingleton<HistoryStore>();
 builder.Services.AddSingleton<BlockComposer>();
 builder.Services.AddSingleton<WatermarkManager>();
 builder.Services.AddSingleton<Distiller>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<Distiller>());
 builder.Services.AddSingleton<WorkflowRunner>();
 
 // ---------- 画像与工具 ----------
@@ -143,6 +149,8 @@ using (IServiceScope scope = app.Services.CreateScope())
         return searchTool.SearchAsync(query ?? "", topic);
     });
     scope.ServiceProvider.GetRequiredService<ProfileTools>().Register(registry);
+    scope.ServiceProvider.GetRequiredService<InteractionTools>().Register(registry);
+    _ = scope.ServiceProvider.GetRequiredService<PromptSettingsService>().Current;
     scope.ServiceProvider.GetRequiredService<AdminTools>().Register(registry);
 
     // 启动即加载 SayNo 词表（首次运行自动生成默认 sayno.json，便于用户直接编辑）

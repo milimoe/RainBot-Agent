@@ -94,7 +94,7 @@ public class WarmupScheduler(
                 Type = TriggerType.Warmup,
                 Reason = reason,
                 WarmupHint = hint,
-                AllowProfileUpdate = true // 仅暖群工作流允许沉淀画像
+                AllowProfileUpdate = true // 暖群画像沉淀不受普通对话每日配额限制
             };
 
             _logger.LogInformation("群 {Group} 触发主动暖群：{Reason}", state.GroupOpenId, reason);

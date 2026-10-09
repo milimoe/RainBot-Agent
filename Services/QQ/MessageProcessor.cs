@@ -61,9 +61,44 @@ public class MessageProcessor
         _webUi = webUi;
     }
 
-    public async Task ProcessAsync(IncomingMessage message, CancellationToken ct)
+    public Task ProcessAsync(IncomingMessage message, CancellationToken ct)
+        => ProcessBatchAsync([message], ct);
+
+    /// <summary>同会话积压消息先逐条记录，再合并为一次工作流；私聊逐条处理。</summary>
+    public async Task ProcessBatchAsync(IReadOnlyList<IncomingMessage> messages, CancellationToken ct)
     {
-        DateTimeOffset now = message.ReceivedAt;
+        List<IncomingMessage> eligible = [];
+        foreach (IncomingMessage message in messages)
+        {
+            ct.ThrowIfCancellationRequested();
+            bool fresh = IsFresh(message, DateTimeOffset.UtcNow);
+            if (await ApplySideEffectsAsync(message, fresh))
+            {
+                eligible.Add(message);
+            }
+        }
+        if (eligible.Count == 0) return;
+        if (eligible[0].IsPrivate)
+        {
+            foreach (IncomingMessage message in eligible)
+                await TriggerAsync([message], ct);
+        }
+        else
+        {
+            await TriggerAsync(eligible, ct);
+        }
+    }
+
+    private bool IsFresh(IncomingMessage message, DateTimeOffset now)
+    {
+        int seconds = _config.Config.Trigger.BacklogMaxAgeSeconds;
+        return seconds <= 0 || now - message.ReceivedAt <= TimeSpan.FromSeconds(seconds);
+    }
+
+    /// <summary>返回可参加本批触发判定的消息；过期消息仅记录统计和历史。</summary>
+    private async Task<bool> ApplySideEffectsAsync(IncomingMessage message, bool fresh)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
 
         // 0. 推送 WebUI（实时聊天页）
         _webUi?.PublishMemberMessage(message);
@@ -85,12 +120,6 @@ public class MessageProcessor
         // 2. 输入风控：@ 消息命中敏感内容 → 不回应（仅标记观察）；
         //    普通消息命中敏感内容 → 不回应 @ 时同样不参与随机插嘴（避免拿敏感话头开涮）
         bool sensitive = _inputFilter.Check(message.Content) != null;
-        if (message.IsAtRobot && sensitive)
-        {
-            _logger.LogInformation("群 {Group} 收到敏感 @ 消息，不回应（已标记观察）", message.GroupOpenId);
-            return;
-        }
-
         // 3. 历史入库（所有消息都记录，供上下文与话题分析）。
         //    SkipSideEffects 时跳过：全量事件已入库，避免同一消息在上下文里出现两次。
         if (!message.SkipSideEffects)
@@ -100,9 +129,9 @@ public class MessageProcessor
 
         // 3.5 机器人自己的消息（全量模式回显，author.bot=true）：
         //     统计/历史已记录（机器人发言应进入上下文），但不再触发指令/随机互动/被动回复——机器人不回应自己。
-        if (message.IsFromBot)
+        if (message.IsFromBot || sensitive || !fresh)
         {
-            return;
+            return false;
         }
 
         // 4. 指令处理（无需 @，群里直接发送指令即可；@ 发送同样有效，管理员指令按权限放行）
@@ -138,7 +167,7 @@ public class MessageProcessor
                         });
                     }
                 }
-                return;
+                return false;
             }
             if (message.IsAtRobot && _logger.IsEnabled(LogLevel.Debug))
             {
@@ -148,15 +177,26 @@ public class MessageProcessor
 
         // 5. 随机互动（原版 RainBOT 娱乐功能：反驳/复读/OSM/反向艾特/叫哥，纯规则不耗 Token）
         // 私聊不玩随机互动：反向艾特/叫哥/复读在 1:1 场景下很怪，且会打断正常对话
-        if (!message.IsPrivate)
+        if (!message.IsPrivate && !message.SkipSideEffects)
         {
             FunResult fun = await _fun.TryRespondAsync(message);
             if (fun.Blocked)
             {
-                return;
+                return false;
             }
         }
 
+        return true;
+    }
+
+    private async Task TriggerAsync(IReadOnlyList<IncomingMessage> candidates, CancellationToken ct)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        // 副作用处理期间也可能耗时，再次检查时效；优先回应本批最后一条 @。
+        List<IncomingMessage> fresh = candidates.Where(m => IsFresh(m, now)).ToList();
+        if (fresh.Count == 0) return;
+        IncomingMessage message = fresh.LastOrDefault(m => m.IsAtRobot) ?? fresh[^1];
+        bool sensitive = false;
         // 6. 被动触发判定：@/回复 → 即时响应；普通消息 → 概率插嘴（Trigger.RandomChatProbability，0 = 关闭）
         bool atTriggered = _passiveTrigger.ShouldTrigger(message, now);
         bool randomChat = !atTriggered && _passiveTrigger.ShouldRandomChat(message, now, sensitive);
@@ -187,17 +227,30 @@ public class MessageProcessor
             : "";
         // 图片与引用：本条附件/引用自带优先，其次按 ref_msg_idx 本地回溯，最后按时间窗回溯本人最近的图
         (List<string> imageUrls, string quotedText) = ResolveContext(message, now);
+        foreach (IncomingMessage other in fresh.Where(m => !ReferenceEquals(m, message)))
+        {
+            var (images, quote) = ResolveContext(other, now);
+            imageUrls.AddRange(images);
+            if (!string.IsNullOrWhiteSpace(quote))
+                quotedText = string.IsNullOrWhiteSpace(quotedText) ? quote : quotedText + "\n" + quote;
+        }
+        imageUrls = imageUrls.Distinct(StringComparer.Ordinal).ToList();
 
         TriggerContext ctx = new()
         {
             BotId = message.BotId,
             GroupOpenId = message.GroupOpenId,
+            CreatedAt = message.ReceivedAt,
             IsPrivate = message.IsPrivate,
             Type = randomChat ? TriggerType.RandomChat : TriggerType.Passive,
             Reason = randomChat
                 ? "随机搭话（群友在群里说话但没 @ 你，群消息历史最后一条就是触发消息）"
                 : message.IsPrivate ? "私聊互动" : "被群友 @ 互动",
             SenderOpenId = message.SenderOpenId,
+            SenderNickname = message.Username,
+            PendingMessages = fresh.Count > 1
+                ? fresh.Select(m => new PendingSpeaker(m.SenderOpenId, m.Username, m.DisplayContent)).ToList()
+                : [],
             RecalledProfile = recalled,
             ImageUrls = imageUrls,
             QuotedContent = quotedText,
@@ -205,6 +258,8 @@ public class MessageProcessor
         };
 
         // 8. 执行工作流（@ 事件消息引用原消息回复；全量模式消息按官方约束主动发送）
+        if (fresh.Count > 1)
+            _logger.LogInformation("会话 {Group} 合并 {Count} 条积压消息为一次回复", message.GroupOpenId, fresh.Count);
         await _workflowRunner.RunAsync(ctx, message.IsFullMessage ? null : message.MsgId, ct);
     }
 

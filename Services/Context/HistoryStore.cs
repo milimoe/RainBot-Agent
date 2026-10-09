@@ -26,6 +26,7 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
             list.AddLast(new HistoryEntry
             {
                 UserOpenId = message.SenderOpenId,
+                Nickname = message.Username,
                 Content = content,
                 Time = message.ReceivedAt,
                 IsAt = message.IsAtRobot,
@@ -172,6 +173,7 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
 /// <summary>一条历史消息</summary>
 public class HistoryEntry
 {
+    public string? Nickname { get; init; }
     public required string UserOpenId { get; init; }
     public required string Content { get; init; }
     public DateTimeOffset Time { get; init; }

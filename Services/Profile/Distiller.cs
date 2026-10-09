@@ -1,5 +1,4 @@
-using System.Text.Json;
-using RainBot.Services.Config;
+using System.Threading.Channels;
 using RainBot.Services.Context;
 using RainBot.Services.Llm;
 using RainBot.Services.Storage;
@@ -10,18 +9,32 @@ namespace RainBot.Services.Profile;
 /// 蒸馏压缩（强制压缩阶段）：调用 Flash 将长历史压缩为 3-5 条核心事实摘要，
 /// 存库（distill_summaries），随后清空 Block E 仅保留最近几条。
 /// </summary>
-public class Distiller(RuntimeConfig config, DeepSeekClient deepSeekClient, Database db, HistoryStore historyStore, ILogger<Distiller> logger)
+public class Distiller(DeepSeekClient deepSeekClient, Database db, ILogger<Distiller> logger) : BackgroundService
 {
-    private readonly RuntimeConfig _config = config;
     private readonly DeepSeekClient _deepSeekClient = deepSeekClient;
     private readonly Database _db = db;
-    private readonly HistoryStore _historyStore = historyStore;
     private readonly ILogger<Distiller> _logger = logger;
 
+    private readonly Channel<(string Group, IReadOnlyList<HistoryEntry> History)> _jobs =
+        Channel.CreateUnbounded<(string, IReadOnlyList<HistoryEntry>)>(new UnboundedChannelOptions { SingleReader = true });
+
+    public void Enqueue(string groupOpenId, IReadOnlyList<HistoryEntry> history)
+        => _jobs.Writer.TryWrite((groupOpenId, history.ToArray()));
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            await foreach (var job in _jobs.Reader.ReadAllAsync(stoppingToken))
+                await CompressAsync(job.Group, job.History, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
+    }
+
     /// <summary>
-    /// 执行蒸馏压缩：返回摘要文本（失败时返回空串，调用方继续降级但不清空历史）。
+    /// 执行历史快照蒸馏：返回摘要文本；失败时保留降级状态并返回空串。
     /// </summary>
-    public async Task<string> CompressAsync(string groupOpenId, IReadOnlyList<HistoryEntry> history)
+    public async Task<string> CompressAsync(string groupOpenId, IReadOnlyList<HistoryEntry> history, CancellationToken ct = default)
     {
         if (history.Count == 0)
         {
@@ -29,7 +42,7 @@ public class Distiller(RuntimeConfig config, DeepSeekClient deepSeekClient, Data
         }
 
         // 历史文本：按时间正序拼接（蒸馏输入在消息尾部，不影响前缀缓存）
-        string historyText = string.Join("\n", history.Select(h => $"{ShortId(h.UserOpenId)}: {h.Content}"));
+        string historyText = string.Join("\n", history.Select(h => $"{UserIdentityResolver.ShortId(h.UserOpenId)}: {h.Content}"));
 
         var messages = new List<ChatMessage>
         {
@@ -39,7 +52,7 @@ public class Distiller(RuntimeConfig config, DeepSeekClient deepSeekClient, Data
 
         try
         {
-            ChatResult result = await _deepSeekClient.ChatAsync(messages, maxTokens: 500);
+            ChatResult result = await _deepSeekClient.ChatAsync(messages, maxTokens: 500, ct: ct);
             string? content = result.Message.Content;
             if (string.IsNullOrWhiteSpace(content))
             {
@@ -50,6 +63,7 @@ public class Distiller(RuntimeConfig config, DeepSeekClient deepSeekClient, Data
             _logger.LogInformation("群 {Group} 历史已蒸馏压缩，原文 {Count} 条 → 摘要 {Summary}", groupOpenId, history.Count, summary);
             return summary;
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogError(ex, "群 {Group} 蒸馏压缩失败", groupOpenId);
@@ -69,5 +83,4 @@ public class Distiller(RuntimeConfig config, DeepSeekClient deepSeekClient, Data
         return text.Trim();
     }
 
-    private static string ShortId(string openId) => openId.Length > 6 ? openId[..6] : openId;
 }

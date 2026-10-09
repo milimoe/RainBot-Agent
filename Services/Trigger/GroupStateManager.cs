@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using RainBot.Models;
 using RainBot.Services.Storage;
+using RainBot.Services.Profile;
 
 namespace RainBot.Services.Trigger;
 
@@ -14,10 +15,14 @@ public class GroupStateManager
     private readonly Database _db;
     private readonly ILogger<GroupStateManager> _logger;
 
-    public GroupStateManager(Database db, ILogger<GroupStateManager> logger)
+    private readonly UserIdentityResolver _identities;
+    private readonly AnchorManager _anchors;
+    public GroupStateManager(Database db, ILogger<GroupStateManager> logger, UserIdentityResolver identities, AnchorManager anchors)
     {
         _db = db;
         _logger = logger;
+        _identities = identities;
+        _anchors = anchors;
     }
 
     public GroupState GetOrCreate(string groupOpenId) => _states.GetOrAdd(groupOpenId, static id => new GroupState { GroupOpenId = id });
@@ -25,6 +30,12 @@ public class GroupStateManager
     /// <summary>群消息到达：更新统计（休眠计数）与静默计时</summary>
     public async Task OnMessageAsync(IncomingMessage message)
     {
+        if (!message.IsFromBot && !message.IsPrivate && !message.SkipSideEffects && !string.IsNullOrWhiteSpace(message.SenderOpenId))
+        {
+            await _db.BumpUserActivityAsync(message.GroupOpenId, message.SenderOpenId, message.Username, message.ReceivedAt);
+            _identities.LearnNickname(message.GroupOpenId, message.SenderOpenId, message.Username);
+            _anchors.Invalidate(message.GroupOpenId);
+        }
         GroupState state = GetOrCreate(message.GroupOpenId);
         DateTimeOffset now = message.ReceivedAt;
         state.LastMessageUtc = now;

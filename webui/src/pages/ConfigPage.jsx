@@ -6,6 +6,7 @@ import { IconSearch } from '../components/Icons.jsx';
 const SECTION_TITLES = {
   LLM: '🤖 LLM 大模型',
   触发: '⚡ 触发与节流',
+  画像: '👥 群友画像',
   上下文: '🧠 上下文与缓存',
   风控: '🛡️ 风控与合规',
   随机互动: '🎲 随机互动',

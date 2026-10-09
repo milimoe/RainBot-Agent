@@ -7,6 +7,7 @@ using RainBot.Services.Bots;
 using RainBot.Services.Config;
 using RainBot.Services.Fun;
 using RainBot.Services.OneBot;
+using RainBot.Services.Persona;
 using RainBot.Services.QQ;
 using RainBot.Services.Storage;
 using RainBot.Services.Trigger;
@@ -159,7 +160,33 @@ public static class WebUiApi
                 : Results.Json(new { error }, statusCode: 400);
         });
 
-        // ---------- 设置：人设（热重载） ----------
+        // ---------- 人设库：标识名与 bot_name 分开维护 ----------
+        api.MapGet("/personas", (PersonaCatalog catalog) => Results.Json(new { personas = catalog.List(), defaults = PromptSettings.Default }));
+        api.MapPost("/personas", async (PersonaCatalog catalog, HttpRequest request) =>
+            await SavePersonaAsync(catalog, request, null));
+        api.MapPut("/personas/{name}", async (string name, PersonaCatalog catalog, HttpRequest request) =>
+            await SavePersonaAsync(catalog, request, name));
+        api.MapDelete("/personas/{name}", (string name, PersonaCatalog catalog) =>
+        {
+            string? error = catalog.Delete(name);
+            return error == null ? Results.Json(new { ok = true }) : Results.Json(new { error }, statusCode: 400);
+        });
+
+        api.MapGet("/settings/prompt", (PromptSettingsService prompts) => Results.Json(new { path = prompts.FilePathForDisplay, settings = prompts.Current }));
+        api.MapPut("/settings/prompt", async (PromptSettingsService prompts, HttpRequest request) =>
+        {
+            try
+            {
+                PromptSettings? settings = (await ReadBodyAsync(request))?.Deserialize<PromptSettings>(PromptSettingsService.JsonOptions);
+                if (settings == null) return Results.Json(new { error = "提示词配置不能为空" }, statusCode: 400);
+                if (settings.Validate() is string error) return Results.Json(new { error }, statusCode: 400);
+                prompts.Save(prompts.FilePathForDisplay, settings);
+                return Results.Json(new { ok = true });
+            }
+            catch (JsonException) { return Results.Json(new { error = "提示词配置格式错误" }, statusCode: 400); }
+        });
+
+        // ---------- 设置：人设（兼容旧端点） ----------
         api.MapGet("/settings/persona", async (RuntimeConfig config) =>
         {
             string path = ResolvePath(config.Config.PersonaPath);
@@ -456,6 +483,7 @@ public static class WebUiApi
                     platform = b.Platform.ToString(),
                     b.Enabled,
                     b.PersonaPath,
+                    b.PersonaName,
                     b.Admins,
                     qq = b.Qq,
                     oneBot = new
@@ -487,7 +515,7 @@ public static class WebUiApi
             });
         });
 
-        api.MapPost("/bots", async (BotInstanceStore store, HttpRequest request) =>
+        api.MapPost("/bots", async (BotInstanceStore store, PersonaCatalog catalog, HttpRequest request) =>
         {
             JsonNode? body = await ReadBodyAsync(request);
             if (body is not JsonObject obj)
@@ -495,6 +523,8 @@ public static class WebUiApi
                 return Results.Json(new { error = "请求体格式错误" }, statusCode: 400);
             }
             BotInstance instance = ParseBotInstance(obj);
+            if (!string.IsNullOrWhiteSpace(instance.PersonaName) && !catalog.Exists(instance.PersonaName))
+                return Results.Json(new { error = "所选人设不存在，请先在人设页创建。" }, statusCode: 400);
             string? error = await store.UpsertAsync(instance);
             return error != null ? Results.Json(new { error }, statusCode: 400) : Results.Json(new { ok = true, id = instance.Id });
         });
@@ -620,6 +650,23 @@ public static class WebUiApi
     // ---------- 辅助 ----------
 
     /// <summary>把 WebUI 提交的 JSON 解析为机器人实例（缺字段用默认值，避免前端漏传报错）</summary>
+    private static async Task<IResult> SavePersonaAsync(PersonaCatalog catalog, HttpRequest request, string? existingName)
+    {
+        try
+        {
+            JsonNode? body = await ReadBodyAsync(request);
+            string name = existingName ?? body?["name"]?.GetValue<string>() ?? "";
+            string? content = body?["content"]?.GetValue<string>();
+            PromptSettings? settings = body?["settings"]?.Deserialize<PromptSettings>(PromptSettingsService.JsonOptions);
+            string? error = catalog.Save(name, content, settings, existingName == null);
+            return error == null ? Results.Json(new { ok = true, name }) : Results.Json(new { error }, statusCode: 400);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException)
+        {
+            return Results.Json(new { error = "人设请求格式错误，请检查名称、正文和提示词配置。" }, statusCode: 400);
+        }
+    }
+
     private static BotInstance ParseBotInstance(JsonObject obj)
     {
         BotInstance instance = new()
@@ -631,6 +678,7 @@ public static class WebUiApi
                 : BotPlatform.QqOfficial,
             Enabled = obj["enabled"]?.GetValue<bool>() ?? true,
             PersonaPath = obj["personaPath"]?.GetValue<string>() ?? "",
+            PersonaName = obj["personaName"]?.GetValue<string>() ?? "",
             Admins = obj["admins"] is JsonArray admins
                 ? admins.Select(a => a?.GetValue<string>()?.Trim() ?? "").Where(a => a.Length > 0).ToList()
                 : []

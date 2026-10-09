@@ -44,6 +44,10 @@ public static class TestHost
         services.AddSingleton(Options.Create(new RainConfig()));
         services.AddSingleton<Database>();
         services.AddSingleton<RuntimeConfig>();
+        services.AddSingleton<PromptSettingsService>();
+        services.AddSingleton<PersonaCatalog>();
+        services.AddSingleton<UserIdentityResolver>();
+        services.AddSingleton<InteractionTools>();
         services.AddSingleton<PersonaLoader>();
         services.AddSingleton<GroupStateManager>();
         services.AddSingleton<Services.QQ.BotIdentityResolver>();
@@ -61,6 +65,7 @@ public static class TestHost
         services.AddSingleton<PassiveTrigger>();
         services.AddSingleton<ActiveTrigger>();
         services.AddSingleton<Distiller>();
+        services.AddHostedService(sp => sp.GetRequiredService<Distiller>());
         services.AddSingleton<BlockComposer>();
         services.AddSingleton<WatermarkManager>();
         services.AddSingleton<Services.Llm.CacheMonitor>();
@@ -82,6 +87,7 @@ public static class TestHost
 
         services.AddSingleton<Services.QQ.BotStatus>();
         services.AddSingleton<Services.QQ.MessageQueue>();
+        services.AddSingleton<Services.QQ.MessageProcessor>();
         services.AddSingleton<SendQueue>();
         services.AddSingleton<Services.Fun.SayNoWordsService>();
         services.AddSingleton<Services.Fun.OsmImageCatalog>();

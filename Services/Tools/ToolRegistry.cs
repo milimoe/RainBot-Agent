@@ -32,16 +32,19 @@ public class ToolRegistry
             Parameters(("query", "搜索关键词", true, "string"), ("topic", "话题分类（可选，用于缓存归类）", false, "string")));
 
         Register("get_user_profile",
-            "获取某位群友的画像信息（兴趣、习惯、过往话题）。参数 user 为群友短 ID（如 u123456）或完整 openid。仅在你需要了解某人背景以更好回应时调用。",
+            "了解群友的兴趣、习惯、过往话题。user 支持短标识、完整标识或昵称；暂无画像时，可从真实对话观察并用 update_user_profile 沉淀。",
             Parameters(("user", "群友短 ID（u 开头）或 openid", true, "string")));
 
         Register("update_user_profile",
-            "更新某位群友的画像（标签、兴趣、习惯、总结）。仅管理员主动暖群场景可用，用于沉淀群友特征。",
+            "根据真实对话沉淀群友标签、兴趣、习惯和总结；日常对话也可用，受每日配额限制。不要猜测或记录敏感信息。user 支持短标识、完整标识或昵称。",
             Parameters(("user", "群友短 ID（u 开头）或 openid", true, "string"),
                        ("tags", "标签数组，如 [\"装机\",\"显卡\"]", false, "array"),
                        ("interests", "兴趣描述", false, "string"),
                        ("habits", "表达习惯描述", false, "string"),
                        ("summary", "对 TA 的观察总结", false, "string")));
+
+        Register("at_user", "为本轮回复添加真正的 @。user 支持当前触发者完整标识、群友短标识或昵称；歧义时先根据候选消歧。只能选择当前群近期活跃成员，每轮最后一次成功选择生效，不会单独发送消息。",
+            Parameters(("user", "目标群友短标识、完整标识或昵称", true, "string")));
 
         Register("admin_set_setting",
             "修改机器人运行参数（仅管理员）。key 形如 Trigger.PassiveCooldownSeconds，value 为数值或字符串。修改即时生效并持久化。",
@@ -209,6 +212,8 @@ public class RegisteredTool
 /// <summary>工具执行上下文（由 ReActLoop 传入）</summary>
 public class ToolExecutionContext
 {
+    public bool IsPrivate { get; init; }
+    public string? RequestedAtUserId { get; set; }
     public required string GroupOpenId { get; init; }
     public string? SenderOpenId { get; init; }
     public required bool IsAdmin { get; init; }

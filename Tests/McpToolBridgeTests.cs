@@ -107,15 +107,15 @@ public class McpToolBridgeTests
     public void RegisterExternal_追加在builtin之后且顺序确定()
     {
         ToolRegistry registry = new(NullLogger<ToolRegistry>.Instance);
+        int builtinCount = registry.GetToolDefs().Count;
         registry.RegisterExternal("mcp__srv-a__z_tool", "z 描述", Params("z"));
         registry.RegisterExternal("mcp__srv-b__a_tool", "a 描述", Params("a"));
 
         var defs = registry.GetToolDefs();
-        // 7 个 builtin + 2 个外部
-        Assert.Equal(9, defs.Count);
-        Assert.Equal("mcp__srv-a__z_tool", defs[7].Function.Name);
-        Assert.Equal("mcp__srv-b__a_tool", defs[8].Function.Name);
-        Assert.Equal("z 描述", defs[7].Function.Description);
+        Assert.Equal(builtinCount + 2, defs.Count);
+        Assert.Equal("mcp__srv-a__z_tool", defs[builtinCount].Function.Name);
+        Assert.Equal("mcp__srv-b__a_tool", defs[builtinCount + 1].Function.Name);
+        Assert.Equal("z 描述", defs[builtinCount].Function.Description);
     }
 
     [Fact]

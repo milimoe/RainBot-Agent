@@ -28,7 +28,10 @@ public class BotInstance
     /// <summary>是否启用（禁用后不启动监听、不发送）</summary>
     public bool Enabled { get; set; } = true;
 
-    /// <summary>人设文件路径（留空用全局 Persona/persona.md；填写则该实例独立人设）</summary>
+    /// <summary>人设标识名，留空使用默认模板；优先于旧路径配置。</summary>
+    public string PersonaName { get; set; } = "";
+
+    /// <summary>旧版独立人设路径，保留兼容；选择库中人设后清空。</summary>
     public string PersonaPath { get; set; } = "";
 
     /// <summary>

@@ -17,6 +17,15 @@ export function IconChat({ size = 22, ...p }) {
   );
 }
 
+export function IconPerson({ size = 22, ...p }) {
+  return (
+    <svg width={size} height={size} {...base} {...p}>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
+    </svg>
+  );
+}
+
 export function IconSliders({ size = 22, ...p }) {
   return (
     <svg width={size} height={size} {...base} {...p}>

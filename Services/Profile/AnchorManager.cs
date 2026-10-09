@@ -30,8 +30,8 @@ public class AnchorManager(RuntimeConfig config, Database db, ILogger<AnchorMana
             .Select(u =>
             {
                 List<string> tags = u.Tags.Where(t => !string.IsNullOrWhiteSpace(t)).Take(2).ToList();
-                string tagText = tags.Count > 0 ? ": " + string.Join(" ", tags.Select(t => $"#{t}")) : "";
-                return $"u{ShortId(u.UserOpenId)}:{tagText}";
+                string tagText = tags.Count > 0 ? " " + string.Join(" ", tags.Select(t => $"#{t}")) : "";
+                return $"{UserIdentityResolver.ShortId(u.UserOpenId)}:{tagText}";
             })
             .Where(l => l.Length <= 40) // 单条 < 20 tokens 约束（保守按 2 字符/token 估算）
             .ToList();
@@ -48,5 +48,5 @@ public class AnchorManager(RuntimeConfig config, Database db, ILogger<AnchorMana
         _cache.TryRemove(groupOpenId, out _);
     }
 
-    public static string ShortId(string openId) => openId.Length > 8 ? openId[..8] : openId;
+    public static string ShortId(string openId) => UserIdentityResolver.ShortId(openId)[1..];
 }

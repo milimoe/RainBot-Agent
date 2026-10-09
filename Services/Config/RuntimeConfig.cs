@@ -219,6 +219,10 @@ public class RuntimeConfig
                 case "Fun.EnableCallBrother": _config.Fun.EnableCallBrother = ParseBool(value, nameof(_config.Fun.EnableCallBrother)); return true;
                 case "Fun.CallBrotherProbability": _config.Fun.CallBrotherProbability = ParseInt(value, nameof(_config.Fun.CallBrotherProbability)); return true;
                 case "Fun.CallBrotherDelaySeconds": _config.Fun.CallBrotherDelaySeconds = ParseInt(value, nameof(_config.Fun.CallBrotherDelaySeconds)); return true;
+                case "PromptPath": _config.PromptPath = value; return true;
+                case "Profile.DailyUpdateLimit": _config.Profile.DailyUpdateLimit = ParseNonNegativeInt(value, nameof(_config.Profile.DailyUpdateLimit)); return true;
+                case "Profile.ActiveWindowHours": _config.Profile.ActiveWindowHours = ParseInt(value, nameof(_config.Profile.ActiveWindowHours)); return true;
+                case "Trigger.BacklogMaxAgeSeconds": _config.Trigger.BacklogMaxAgeSeconds = ParseNonNegativeInt(value, nameof(_config.Trigger.BacklogMaxAgeSeconds)); return true;
                 case "PersonaPath": _config.PersonaPath = value; return true;
                 case "SayNoPath": _config.SayNoPath = value; return true;
                 case "PublicBaseUrl": _config.PublicBaseUrl = value; return true;
@@ -337,6 +341,7 @@ public class RuntimeConfig
         "Fun.EnableOsm", "Fun.OsmProbability",
         "Fun.EnableReverseAt", "Fun.ReverseAtProbability",
         "Fun.EnableCallBrother", "Fun.CallBrotherProbability", "Fun.CallBrotherDelaySeconds",
+        "PromptPath", "Profile.DailyUpdateLimit", "Profile.ActiveWindowHours", "Trigger.BacklogMaxAgeSeconds",
         "PersonaPath", "SayNoPath", "PublicBaseUrl", "DebugMode", "DebugShowReasoning", "MarkdownReply",
         "Search.Provider", "Search.SearxngBaseUrl", "Search.TavilyApiKey", "Search.TavilyDailyLimit", "Search.TimeoutSeconds", "Search.MaxResults"
     ];

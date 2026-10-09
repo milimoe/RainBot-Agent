@@ -96,11 +96,11 @@ public class WatermarkManager(
     private async Task DistillAndDegradeAsync(ComposeResult compose)
     {
         var cfg = _config.Config.Context;
-        // 1. 蒸馏历史：Flash 压缩为 3-5 条核心事实摘要（存库）
+        // 1. 抓取快照并交给后台消费者；LLM 不占用回复关键路径。
         List<HistoryEntry> history = [];
         // 从 HistoryStore 取全量历史供蒸馏（超过保留上限的部分本就已丢弃，取现有即可）
         history = _historyStore.GetRecent(compose.GroupOpenId, int.MaxValue, out _);
-        await _distiller.CompressAsync(compose.GroupOpenId, history);
+        _distiller.Enqueue(compose.GroupOpenId, history);
 
         // 2. 清空 Block E，仅保留最近 N 条
         _historyStore.ClearKeep(compose.GroupOpenId, cfg.DistillKeepMessages);
@@ -117,7 +117,7 @@ public enum WatermarkAction
     /// <summary>无需处理</summary>
     None,
 
-    /// <summary>已蒸馏压缩并降级，需重建上下文</summary>
+    /// <summary>已截取蒸馏快照并降级，需重建上下文；摘要后台生成</summary>
     Distilled,
 
     /// <summary>已彻底重置上下文（降级恢复）</summary>

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using RainBot.Models;
 using RainBot.Services.Config;
 using RainBot.Services.Context;
@@ -10,7 +11,7 @@ namespace RainBot.Services.Workflow;
 
 /// <summary>
 /// 工作流执行器：上下文组装 → 水位治理 → ReAct 循环 → 输出风控 → 发送 → 统计。
-/// 全局串行（SemaphoreSlim），保证同群/跨群工作流不并发交错。
+/// 按会话串行，同群消息有序，不同群可并行。
 /// </summary>
 public class WorkflowRunner(
     BlockComposer blockComposer,
@@ -32,7 +33,7 @@ public class WorkflowRunner(
     private readonly RuntimeConfig _config = config;
     private readonly Services.Bots.BotInstanceStore _bots = bots;
     private readonly ILogger<WorkflowRunner> _logger = logger;
-    private readonly SemaphoreSlim _workflowLock = new(1, 1);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _workflowLocks = new(StringComparer.Ordinal);
 
     /// <summary>思维显示时思维链的展示字数上限（防单条消息过长，超出截断）</summary>
     private const int MaxReasoningDisplayChars = 1000;
@@ -69,9 +70,14 @@ public class WorkflowRunner(
     /// <returns>是否真正入队发送了消息（无内容可说时静默跳过会返回 false）</returns>
     public async Task<bool> RunAsync(TriggerContext ctx, string? replyMsgId, CancellationToken ct = default)
     {
-        await _workflowLock.WaitAsync(ct);
+        SemaphoreSlim workflowLock = _workflowLocks.GetOrAdd(ctx.GroupOpenId, _ => new SemaphoreSlim(1, 1));
+        await workflowLock.WaitAsync(ct);
         try
         {
+            int maxAge = _config.Config.Trigger.BacklogMaxAgeSeconds;
+            if (ctx.Type != TriggerType.Warmup && maxAge > 0 &&
+                DateTimeOffset.UtcNow - ctx.CreatedAt > TimeSpan.FromSeconds(maxAge))
+                return false;
             // 1. 组装上下文（Block A-F，前缀稳定）
             ComposeResult compose = await _blockComposer.BuildAsync(ctx);
 
@@ -92,6 +98,7 @@ public class WorkflowRunner(
             ToolExecutionContext toolCtx = new()
             {
                 GroupOpenId = ctx.GroupOpenId,
+                IsPrivate = ctx.IsPrivate,
                 SenderOpenId = ctx.SenderOpenId,
                 IsAdmin = isAdmin,
                 AllowProfileUpdate = ctx.AllowProfileUpdate
@@ -136,6 +143,7 @@ public class WorkflowRunner(
                     GroupOpenId = ctx.GroupOpenId,
                     Content = content,
                     IsPrivate = ctx.IsPrivate,
+                    AtUserId = toolCtx.RequestedAtUserId,
                     MsgId = replyMsgId
                 });
                 if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("{Label} {Group} 触发「{Type}」已回复：{Text}", ctx.IsPrivate ? "私聊" : "群", ctx.GroupOpenId, ctx.Type, text);
@@ -157,7 +165,7 @@ public class WorkflowRunner(
         }
         finally
         {
-            _workflowLock.Release();
+            workflowLock.Release();
         }
     }
 }

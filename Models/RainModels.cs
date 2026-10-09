@@ -121,6 +121,8 @@ public class TriggerContext
 
     /// <summary>触发者 OpenID（被动触发时有值；暖群为空）</summary>
     public string? SenderOpenId { get; init; }
+    public string? SenderNickname { get; init; }
+    public List<PendingSpeaker> PendingMessages { get; init; } = [];
 
     /// <summary>触发者画像召回（L2，进 Block F，下轮丢弃）</summary>
     public string? RecalledProfile { get; init; }
@@ -131,7 +133,7 @@ public class TriggerContext
     /// <summary>暖群时决策 Prompt 额外输入（话题热度等）</summary>
     public string? WarmupHint { get; init; }
 
-    /// <summary>是否允许模型调用画像更新工具（仅主动暖群允许）</summary>
+    /// <summary>是否允许画像更新绕过每日配额（主动暖群）</summary>
     public bool AllowProfileUpdate { get; init; }
 
     /// <summary>触发消息附带的图片 URL（被动/插嘴带图时非空；暖群为空），由组装器下载后内联进多模态请求</summary>
@@ -140,3 +142,5 @@ public class TriggerContext
     /// <summary>触发时间（本地 UTC）</summary>
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
+
+public sealed record PendingSpeaker(string OpenId, string? Nickname, string Content);

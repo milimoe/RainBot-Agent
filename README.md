@@ -16,7 +16,7 @@
 | 识图 | 带图消息（QQ 官方 `attachments` 中 image/*、OneBot image 消息段直链）走多模态识图：图片**下载到内存**并转 base64 data URL 内联进请求（DeepSeek 视觉格式，不落盘因此无需清理），与同一轮的文本一起交给模型理解后回复；单图 ≤8MB、单条最多 4 张、下载超时 20s；下载失败/超限/非图片自动降级纯文本，不中断回复。图片本体**不进历史与上下文**（历史里是 `[图片]` 占位），因此不会重复消耗 token；`Llm.EnableVision=false` 可整体关闭。<br>**引用（回复）消息**：官方在事件里直接下发被引用内容——`message_type=103`（引用消息）/`102`（聊天记录）时，被引用正文与附件在 `msg_elements[].content` / `.attachments`，直接取用（被引用图片同样内联识图）；只带 `message_scene.ext` 的 `ref_msg_idx`（未下发内容）时，按索引从本地历史回溯被引用那条（QQ 官方用 msg_idx，OneBot 用 `reply` 消息段的消息 id）。<br>**先发图、再 @ 机器人分析**：既不是引用也没带图时，向前回溯**触发者本人**最近一张图（窗口 `Trigger.ImageLookbackSeconds`，默认 180s，0 = 关闭；只认本人的图，不跨人取图）。图片 URL 与消息索引仅存内存，重启后回溯为空 |
 | 上下文缓存 | Block A-F 固定顺序组装，可变内容只追加尾部、头部整条丢弃；153.6k 水位三级治理（删 E → 缩 D → 蒸馏压缩 + 降级运行） |
 | 群友画像 | L0 全量画像存库不进上下文；L1 锚点 Top 5 常驻（<20 tokens）；L2 触发式召回进尾部块，下轮即弃 |
-| ReAct 工具 | `web_search`（**后端可配**：bing 默认 / tavily / duckduckgo / searxng，10 分钟话题缓存，失败短路 60s 不重复等超时）、`get_user_profile`、`update_user_profile`（仅暖群）、管理员工具；工具轮次上限防死循环，触顶自动补一次 `tool_choice=none` 收口请求（不丢弃已拿到的工具结果）；温度两档（对话/收口 0.9、工具链中段 0.2） |
+| ReAct 工具 | `web_search`（bing / tavily / duckduckgo / searxng）、`get_user_profile`、`update_user_profile`（普通对话受每日配额限制，暖群不受限）、`at_user`（当前群活跃成员，可按昵称/短标识/完整标识选择）、管理员工具；工具轮次上限防死循环，触顶自动补一次禁用工具的收口请求 |
 | 风控 | 输入（广告/涉政/引流不回应）、输出（openid 泄露替换、≤2 行截断）、平台频控（15 qpm 留余量）、成本监控（缓存命中率 <60% 告警） |
 | 随机互动 | 移植原版 RainBOT：随机反驳是/不、随机复读（延迟防刷屏）、随机OSM（梗图）、反向艾特、随机叫哥；纯规则概率触发不耗 Token，一次消息最多命中一个（防刷屏） |
 | 人设系统 | `Persona/persona.md` 随时改写，保存即热重载，无需重启 |
@@ -207,7 +207,7 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 WS 网关 ──▶ 双事件去重（@/全量同 msg_id 协调，@ 语义绝不丢失）──▶ Channel 队列 ──▶ MessageProcessor
                                                      │  统计 → 输入风控 → 历史入库 → 命令 → 被动触发判定
                                                      ▼
-                                              WorkflowRunner（全局串行）
+                                              WorkflowRunner（按会话串行，跨会话并行）
                                                      │  BlockComposer 组装 A→F（前缀稳定）
                                                      │  WatermarkManager 水位治理（蒸馏/降级/重置）
                                                      │  ReActLoop（工具调用追加尾部）
@@ -271,3 +271,18 @@ wwwroot/webui/    WebUI 前端构建产物（UseStaticFiles 直接托管）
 deploy/           宝塔部署指南
 Tests/            xUnit 测试
 ```
+
+
+## 人设管理与实例关联
+
+WebUI 顶级「人设」页维护默认模板及自定义人设。「新增」时填写标识名 `name`、机器人称呼 `bot_name` 和 Markdown 正文，也可导入 `.md` 文件。标识名创建后保持不变，用于实例关联；机器人称呼可随时修改，用于提示词中的自称。
+
+- 默认模板保留为 `Persona/persona.md`，默认提示词配置为 `Persona/prompt.json`，不可删除。
+- 自定义人设保存为 `Persona/persona_{name}.md`，对应提示词配置为 `Persona/prompt_{name}.json`。标识名支持 1–64 个字母、数字、中文、下划线、连字符，`default` 为保留名。
+- 在「机器人」页下拉选择人设并保存实例；多个实例可共用同一人设。实例存储 `personaName`，与实例显示名及人设的机器人称呼分别独立。
+- 开场说明、铁律和身份认知均可编辑，`{name}` 在开场说明中替换为机器人称呼。保存后下一次对话生效，无需重启。仍被实例使用的人设不能删除。
+- 旧实例的 `personaPath` 继续兼容；选择库中人设后改用 `personaName`。未选择人设的实例使用默认模板。默认路径仍由 `Rain.PersonaPath` / `Rain.PromptPath` 控制。
+
+群消息自动建档并累计互动；画像写入默认每群每用户每日一次（北京时间日历日），可在「配置」页修改 `Profile.DailyUpdateLimit`，0 禁止普通对话更新。`Profile.ActiveWindowHours` 默认 168 小时，限制艾特工具的活跃成员范围。
+
+队列按会话并行处理，同群积压合并为一次模型回复；私聊逐条回复。`Trigger.BacklogMaxAgeSeconds` 默认 120 秒，过期消息仅统计、入库，不执行回复/指令/娱乐互动，0 禁用过期过滤。历史蒸馏后台执行，水位治理无需等待蒸馏模型。

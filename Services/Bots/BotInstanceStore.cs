@@ -242,6 +242,7 @@ public class BotInstanceStore
                 BotInstanceConfigDto? dto = JsonSerializer.Deserialize<BotInstanceConfigDto>(row.ConfigJson, JsonOptions);
                 if (dto != null)
                 {
+                    instance.PersonaName = dto.PersonaName ?? "";
                     instance.PersonaPath = dto.PersonaPath ?? "";
                     instance.Admins = dto.Admins ?? [];
                     instance.Qq = dto.Qq ?? new QqOfficialConfig();
@@ -292,6 +293,7 @@ public class BotInstanceStore
 
     private static string SerializeConfig(BotInstance instance) => JsonSerializer.Serialize(new BotInstanceConfigDto
     {
+        PersonaName = instance.PersonaName,
         PersonaPath = instance.PersonaPath,
         Admins = instance.Admins,
         Qq = instance.Qq,
@@ -312,6 +314,8 @@ public class BotInstanceStore
         {
             return "实例 Id 只能包含字母、数字、下划线与连字符。";
         }
+        if (!string.IsNullOrWhiteSpace(instance.PersonaName) && instance.PersonaName != "default"
+            && Services.Persona.PersonaCatalog.ValidateName(instance.PersonaName) is string personaError) return personaError;
         if (instance.Name.Length == 0)
         {
             instance.Name = instance.Id;
@@ -330,6 +334,7 @@ public class BotInstanceStore
 
     private sealed class BotInstanceConfigDto
     {
+        public string? PersonaName { get; set; }
         public string? PersonaPath { get; set; }
         public List<string>? Admins { get; set; }
         public QqOfficialConfig? Qq { get; set; }

@@ -135,8 +135,29 @@ public class Database
             );
             """;
         await cmd.ExecuteNonQueryAsync();
+        await EnsureUserColumnsAsync(conn);
         await MigrateToBotNamespaceAsync(conn);
         _logger.LogInformation("SQLite 数据库初始化完成");
+    }
+
+    private static async Task EnsureUserColumnsAsync(SqliteConnection conn)
+    {
+        HashSet<string> columns = new(StringComparer.OrdinalIgnoreCase);
+        await using (SqliteCommand info = conn.CreateCommand())
+        {
+            info.CommandText = "PRAGMA table_info(users);";
+            await using SqliteDataReader reader = await info.ExecuteReaderAsync();
+            while (await reader.ReadAsync()) columns.Add(reader.GetString(1));
+        }
+        foreach (string column in new[] { "nickname", "profile_updated_at", "profile_update_day", "profile_update_count" })
+        {
+            if (columns.Contains(column)) continue;
+            await using SqliteCommand alter = conn.CreateCommand();
+            alter.CommandText = column == "profile_update_count"
+                ? "ALTER TABLE users ADD COLUMN profile_update_count INTEGER NOT NULL DEFAULT 0;"
+                : $"ALTER TABLE users ADD COLUMN {column} TEXT NOT NULL DEFAULT '';";
+            await alter.ExecuteNonQueryAsync();
+        }
     }
 
     /// <summary>
@@ -336,7 +357,7 @@ public class Database
         await using SqliteConnection conn = await OpenAsync();
         await using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT group_openid, user_openid, tags, interests, habits, sensitive, summary, last_active, interaction_count
+            SELECT group_openid, user_openid, tags, interests, habits, sensitive, summary, last_active, interaction_count, nickname, profile_updated_at
             FROM users WHERE group_openid = $g AND user_openid = $u;
             """;
         cmd.Parameters.AddWithValue("$g", groupOpenId);
@@ -356,7 +377,9 @@ public class Database
             Sensitive = reader.GetString(5),
             Summary = reader.GetString(6),
             LastActive = reader.GetString(7),
-            InteractionCount = reader.GetInt32(8)
+            InteractionCount = reader.GetInt32(8),
+            Nickname = reader.GetString(9),
+            ProfileUpdatedAt = reader.GetString(10)
         };
     }
 
@@ -365,13 +388,15 @@ public class Database
         await using SqliteConnection conn = await OpenAsync();
         await using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO users (group_openid, user_openid, tags, interests, habits, sensitive, summary, last_active, interaction_count, updated_at)
-            VALUES ($g, $u, $tags, $interests, $habits, $sensitive, $summary, $last_active, $count, $ts)
+            INSERT INTO users (group_openid, user_openid, tags, interests, habits, sensitive, summary, last_active, interaction_count, updated_at, nickname, profile_updated_at)
+            VALUES ($g, $u, $tags, $interests, $habits, $sensitive, $summary, $last_active, $count, $ts, $nickname, $profile_updated)
             ON CONFLICT(group_openid, user_openid) DO UPDATE SET
                 tags = excluded.tags, interests = excluded.interests, habits = excluded.habits,
                 sensitive = excluded.sensitive, summary = excluded.summary,
                 last_active = excluded.last_active, interaction_count = excluded.interaction_count,
-                updated_at = excluded.updated_at;
+                updated_at = excluded.updated_at,
+                nickname = CASE WHEN excluded.nickname <> '' THEN excluded.nickname ELSE nickname END,
+                profile_updated_at = CASE WHEN excluded.profile_updated_at <> '' THEN excluded.profile_updated_at ELSE profile_updated_at END;
             """;
         cmd.Parameters.AddWithValue("$g", profile.GroupOpenId);
         cmd.Parameters.AddWithValue("$u", profile.UserOpenId);
@@ -382,24 +407,28 @@ public class Database
         cmd.Parameters.AddWithValue("$summary", profile.Summary);
         cmd.Parameters.AddWithValue("$last_active", profile.LastActive);
         cmd.Parameters.AddWithValue("$count", profile.InteractionCount);
+        cmd.Parameters.AddWithValue("$nickname", profile.Nickname);
+        cmd.Parameters.AddWithValue("$profile_updated", profile.ProfileUpdatedAt);
         cmd.Parameters.AddWithValue("$ts", Now());
         await cmd.ExecuteNonQueryAsync();
     }
 
     /// <summary>消息统计：互动次数 +1、更新最后活跃时间</summary>
-    public async Task BumpUserActivityAsync(string groupOpenId, string userOpenId)
+    public async Task BumpUserActivityAsync(string groupOpenId, string userOpenId, string? nickname = null, DateTimeOffset? receivedAt = null)
     {
         await using SqliteConnection conn = await OpenAsync();
         await using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO users (group_openid, user_openid, tags, last_active, interaction_count, updated_at)
-            VALUES ($g, $u, '[]', $ts, 1, $ts)
+            INSERT INTO users (group_openid, user_openid, tags, last_active, interaction_count, updated_at, nickname)
+            VALUES ($g, $u, '[]', $ts, 1, $ts, $nickname)
             ON CONFLICT(group_openid, user_openid) DO UPDATE SET
-                last_active = excluded.last_active, interaction_count = interaction_count + 1, updated_at = excluded.updated_at;
+                last_active = MAX(last_active, excluded.last_active), interaction_count = interaction_count + 1, updated_at = excluded.updated_at,
+                nickname = CASE WHEN excluded.nickname <> '' THEN excluded.nickname ELSE nickname END;
             """;
         cmd.Parameters.AddWithValue("$g", groupOpenId);
         cmd.Parameters.AddWithValue("$u", userOpenId);
-        cmd.Parameters.AddWithValue("$ts", Now());
+        cmd.Parameters.AddWithValue("$ts", (receivedAt ?? DateTimeOffset.UtcNow).ToUniversalTime().ToString("o"));
+        cmd.Parameters.AddWithValue("$nickname", nickname?.Trim() ?? "");
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -413,36 +442,11 @@ public class Database
         await cmd.ExecuteNonQueryAsync();
     }
 
-    /// <summary>按短 ID（openid 前 6 位，形如 u123456）查找用户</summary>
+    /// <summary>按统一短标识（u + openid 前 8 位）查找，歧义时返回空。</summary>
     public async Task<UserProfile?> FindUserByShortIdAsync(string groupOpenId, string shortId)
     {
-        string prefix = shortId.TrimStart('u', 'U');
-        await using SqliteConnection conn = await OpenAsync();
-        await using SqliteCommand cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            SELECT group_openid, user_openid, tags, interests, habits, sensitive, summary, last_active, interaction_count
-            FROM users WHERE group_openid = $g AND user_openid LIKE $p ESCAPE '\'
-            ORDER BY interaction_count DESC LIMIT 1;
-            """;
-        cmd.Parameters.AddWithValue("$g", groupOpenId);
-        cmd.Parameters.AddWithValue("$p", $"{prefix}%");
-        await using SqliteDataReader reader = await cmd.ExecuteReaderAsync();
-        if (!await reader.ReadAsync())
-        {
-            return null;
-        }
-        return new UserProfile
-        {
-            GroupOpenId = reader.GetString(0),
-            UserOpenId = reader.GetString(1),
-            Tags = DeserializeTags(reader.GetString(2)),
-            Interests = reader.GetString(3),
-            Habits = reader.GetString(4),
-            Sensitive = reader.GetString(5),
-            Summary = reader.GetString(6),
-            LastActive = reader.GetString(7),
-            InteractionCount = reader.GetInt32(8)
-        };
+        List<UserProfile> matches = await FindUsersAsync(groupOpenId, shortId);
+        return matches.Count == 1 ? matches[0] : null;
     }
 
     /// <summary>按互动次数取 Top N 用户（L1 锚点候选）</summary>
@@ -452,7 +456,7 @@ public class Database
         await using SqliteConnection conn = await OpenAsync();
         await using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT group_openid, user_openid, tags, interests, habits, sensitive, summary, last_active, interaction_count
+            SELECT group_openid, user_openid, tags, interests, habits, sensitive, summary, last_active, interaction_count, nickname, profile_updated_at
             FROM users WHERE group_openid = $g ORDER BY interaction_count DESC LIMIT $limit;
             """;
         cmd.Parameters.AddWithValue("$g", groupOpenId);
@@ -470,13 +474,64 @@ public class Database
                 Sensitive = reader.GetString(5),
                 Summary = reader.GetString(6),
                 LastActive = reader.GetString(7),
-                InteractionCount = reader.GetInt32(8)
+                InteractionCount = reader.GetInt32(8),
+                Nickname = reader.GetString(9),
+                ProfileUpdatedAt = reader.GetString(10)
             });
         }
         return result;
     }
 
     // ---------- 消息历史 ----------
+    public async Task<List<UserProfile>> FindUsersAsync(string groupOpenId, string input)
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT group_openid, user_openid, tags, interests, habits, sensitive, summary, last_active, interaction_count, nickname, profile_updated_at
+            FROM users WHERE group_openid = $g AND
+                (user_openid = $input OR nickname = $input OR ('u' || substr(user_openid, 1, 8)) = $input)
+            ORDER BY user_openid;
+            """;
+        cmd.Parameters.AddWithValue("$g", groupOpenId);
+        cmd.Parameters.AddWithValue("$input", input.Trim());
+        List<UserProfile> users = [];
+        await using SqliteDataReader reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync()) users.Add(new UserProfile
+        {
+            GroupOpenId = reader.GetString(0), UserOpenId = reader.GetString(1), Tags = DeserializeTags(reader.GetString(2)),
+            Interests = reader.GetString(3), Habits = reader.GetString(4), Sensitive = reader.GetString(5), Summary = reader.GetString(6),
+            LastActive = reader.GetString(7), InteractionCount = reader.GetInt32(8), Nickname = reader.GetString(9), ProfileUpdatedAt = reader.GetString(10)
+        });
+        // Exact openid has precedence over nicknames that happen to equal an identifier.
+        UserProfile? exact = users.FirstOrDefault(u => u.UserOpenId == input.Trim());
+        return exact == null ? users : [exact];
+    }
+
+    /// <summary>原子检查每日配额并保存画像，避免并发写入绕过配额或覆盖互动计数。</summary>
+    public async Task<bool> TryUpdateUserProfileAsync(UserProfile profile, int dailyLimit, bool bypassQuota)
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE users SET tags = $tags, interests = $interests, habits = $habits, summary = $summary,
+                profile_updated_at = $ts, updated_at = $ts, profile_update_day = $day,
+                profile_update_count = CASE WHEN profile_update_day = $day THEN profile_update_count + 1 ELSE 1 END
+            WHERE group_openid = $g AND user_openid = $u AND
+                ($bypass = 1 OR (CASE WHEN profile_update_day = $day THEN profile_update_count ELSE 0 END) < $limit);
+            """;
+        cmd.Parameters.AddWithValue("$g", profile.GroupOpenId);
+        cmd.Parameters.AddWithValue("$u", profile.UserOpenId);
+        cmd.Parameters.AddWithValue("$tags", JsonSerializer.Serialize(profile.Tags));
+        cmd.Parameters.AddWithValue("$interests", profile.Interests);
+        cmd.Parameters.AddWithValue("$habits", profile.Habits);
+        cmd.Parameters.AddWithValue("$summary", profile.Summary);
+        cmd.Parameters.AddWithValue("$ts", Now());
+        cmd.Parameters.AddWithValue("$day", DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        cmd.Parameters.AddWithValue("$bypass", bypassQuota ? 1 : 0);
+        cmd.Parameters.AddWithValue("$limit", Math.Max(0, dailyLimit));
+        return await cmd.ExecuteNonQueryAsync() == 1;
+    }
 
     public async Task InsertMessageAsync(string msgId, string groupOpenId, string userOpenId, string content, bool isAt, DateTimeOffset time)
     {
@@ -916,6 +971,8 @@ public class GroupProfile
 /// <summary>用户画像（L0 完整画像，不直接进上下文）</summary>
 public class UserProfile
 {
+    public string Nickname { get; set; } = "";
+    public string ProfileUpdatedAt { get; set; } = "";
     public required string GroupOpenId { get; set; }
     public required string UserOpenId { get; set; }
     public List<string> Tags { get; set; } = [];
