@@ -75,6 +75,25 @@ public class RainConfig
 
     /// <summary>联网搜索配置（web_search 工具后端）</summary>
     public SearchConfig Search { get; set; } = new();
+
+    /// <summary>公网页面读取和 B 站文本链接预取；卡片接入暂未启用。</summary>
+    public PageConfig Page { get; set; } = new();
+}
+
+public class PageConfig
+{
+    /// <summary>启动期选项：使用固定公网 DoH 取代系统 DNS；默认关闭。</summary>
+    public bool UsePublicDns { get; set; } = false;
+    public bool PrefetchEnabled { get; set; } = true;
+    public int BudgetSeconds { get; set; } = 2;
+    public int MaxLinksPerTurn { get; set; } = 2;
+    public int LinkLookbackSeconds { get; set; } = 180;
+    /// <summary>启动时注册 open_page；修改后需重启。</summary>
+    public bool ToolEnabled { get; set; } = true;
+    public int RequestTimeoutSeconds { get; set; } = 8;
+    public int CacheMinutes { get; set; } = 10;
+    public int MaxResponseKb { get; set; } = 512;
+    public int MaxChars { get; set; } = 400;
 }
 
 /// <summary>

@@ -29,19 +29,21 @@ public class MessageDispatcher
     private readonly BotIdentityResolver _botIdentity;
     private readonly BotInstanceStore _store;
     private readonly ILogger<MessageDispatcher> _logger;
+    private readonly QqEventCapture? _capture;
     private readonly ConcurrentDedupe _dedupeAt;   // @ 事件同类重复推送
     private readonly ConcurrentDedupe _dedupeFull; // 全量事件同类重复推送
     private readonly ConcurrentDedupe _dedupeC2c;  // C2C 私聊事件同类重复推送
     private readonly ConcurrentDedupe _atSeen;     // 已按 @ 处理过的 msg_id（全量事件随后到达时跳过）
     private readonly ConcurrentDedupe _fullSeen;   // 已按全量入队过的 msg_id（@ 事件随后到达时跳过副作用）
 
-    public MessageDispatcher(MessageQueue queue, RuntimeConfig config, BotIdentityResolver botIdentity, BotInstanceStore store, ILogger<MessageDispatcher> logger)
+    public MessageDispatcher(MessageQueue queue, RuntimeConfig config, BotIdentityResolver botIdentity, BotInstanceStore store, ILogger<MessageDispatcher> logger, QqEventCapture? capture = null)
     {
         _queue = queue;
         _config = config;
         _botIdentity = botIdentity;
         _store = store;
         _logger = logger;
+        _capture = capture;
         TimeSpan window = TimeSpan.FromSeconds(config.Config.Safety.DedupeWindowSeconds);
         _dedupeAt = new ConcurrentDedupe(window);
         _dedupeFull = new ConcurrentDedupe(window);
@@ -53,6 +55,7 @@ public class MessageDispatcher
     /// <summary>处理网关分发事件（READY/RESUMED/消息等）。botId 为该连接所属机器人实例。</summary>
     public async Task HandleDispatchAsync(string botId, string eventType, JsonElement data)
     {
+        if (_capture != null) await _capture.RecordAsync(botId, eventType, data);
         // 调试：打印每个网关事件（截断长数据，便于排查接收问题）
         if (_logger.IsEnabled(LogLevel.Debug))
         {
@@ -121,6 +124,7 @@ public class MessageDispatcher
             SenderOpenId = senderOpenId,
             Username = group.Author.Username,
             Content = group.Content,
+            CardVideoUrls = QqCardParser.ExtractVideoLinks(data),
             ContextText = MentionRenderer.RenderAtTags(group.Content, group.Mentions),
             ImageUrls = MergeImages(ExtractImageUrls(group.Attachments), quote.QuotedImageUrls),
             QuotedContent = quote.QuotedText,
@@ -188,6 +192,7 @@ public class MessageDispatcher
             SenderOpenId = senderOpenId,
             Username = group.Author.Username,
             Content = group.Content,
+            CardVideoUrls = QqCardParser.ExtractVideoLinks(data),
             ContextText = MentionRenderer.RenderAtTags(group.Content, group.Mentions),
             ImageUrls = MergeImages(ExtractImageUrls(group.Attachments), quote.QuotedImageUrls),
             QuotedContent = quote.QuotedText,
@@ -237,6 +242,7 @@ public class MessageDispatcher
             SenderOpenId = senderOpenId,
             Username = c2c.Author.Username,
             Content = c2c.Content,
+            CardVideoUrls = QqCardParser.ExtractVideoLinks(data),
             ContextText = MentionRenderer.RenderAtTags(c2c.Content, c2c.Mentions),
             ImageUrls = MergeImages(ExtractImageUrls(c2c.Attachments), quote.QuotedImageUrls),
             QuotedContent = quote.QuotedText,

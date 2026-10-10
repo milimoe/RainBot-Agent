@@ -39,6 +39,9 @@ public class IncomingMessage
     /// <summary>消息内容（含 <@!xxx> 等富文本标签；保留原始形态供逻辑判断用）</summary>
     public required string Content { get; init; }
 
+    /// <summary>官 Q 图文卡片的显式视频目标地址，不包含封面或来源图标。</summary>
+    public List<string> CardVideoUrls { get; init; } = [];
+
     /// <summary>
     /// 进历史与上下文的文本：已把 @ 标签渲染成可读用户名（如「@小明」；@ 机器人自己为「@你」），
     /// 由各平台在分发层渲染。为空时回退用 Content。
@@ -122,10 +125,14 @@ public class TriggerContext
     /// <summary>触发者 OpenID（被动触发时有值；暖群为空）</summary>
     public string? SenderOpenId { get; init; }
     public string? SenderNickname { get; init; }
+    public string CurrentContent { get; init; } = "";
+    public bool? SenderIsAdmin { get; init; }
     public List<PendingSpeaker> PendingMessages { get; init; } = [];
 
     /// <summary>触发者画像召回（L2，进 Block F，下轮丢弃）</summary>
     public string? RecalledProfile { get; init; }
+    /// <summary>本轮视频链接的外部元信息及读取状态，不写入历史。</summary>
+    public List<RainBot.Services.Page.PageResult> LinkResults { get; init; } = [];
 
     /// <summary>被回复/引用的消息内容（回复触发时用于理解上下文）</summary>
     public string? QuotedContent { get; init; }

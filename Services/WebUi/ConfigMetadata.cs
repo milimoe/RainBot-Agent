@@ -12,6 +12,14 @@ public static class ConfigMetadata
     /// <summary>类型：text / number / double / percent / bool / secret / stringlist</summary>
     public static readonly IReadOnlyList<ConfigMeta> All =
     [
+        new("Page.PrefetchEnabled", "页面读取", "B 站链接自动读取", "回复前读取文本及官 Q 图文卡片中的 BV 视频链接和 b23 短链，不处理小程序卡片", "bool"),
+        new("Page.BudgetSeconds", "页面读取", "自动读取预算（秒）", "本轮全部预取的总等待上限，超时明确告知模型；实际限制 1–10 秒", "number", 1, 10),
+        new("Page.MaxLinksPerTurn", "页面读取", "每轮视频链接上限", "超过上限的链接不预取；实际限制 1–4 条", "number", 1, 4),
+        new("Page.LinkLookbackSeconds", "页面读取", "视频链接回溯（秒）", "指代性追问时回溯群内最近视频链接；0 关闭，图片回溯保持原行为", "number", 0, 3600),
+        new("Page.RequestTimeoutSeconds", "页面读取", "读取超时（秒）", "open_page 单次读取总预算，包含排队、跳转及下载；实际限制 1–60 秒", "number", 1, 60),
+        new("Page.CacheMinutes", "页面读取", "页面缓存（分钟）", "成功结果缓存时长；失败仅按当前链接缓存 60 秒", "number", 1, 1440),
+        new("Page.MaxResponseKb", "页面读取", "页面大小上限（KB）", "解压后的响应体上限；仅接受 HTML 页面", "number", 1, 2048),
+        new("Page.MaxChars", "页面读取", "摘要字符上限", "open_page 返回摘要的长度，标题和状态另计", "number", 100, 800),
         // ---------- LLM ----------
         new("Llm.BaseUrl", "LLM", "接口地址", "DeepSeek API 地址（OpenAI 兼容）", "text"),
         new("Llm.ApiKey", "LLM", "API Key", "DeepSeek API Key（推荐用环境变量 RAIN__LLM__APIKEY 注入）", "secret"),

@@ -20,6 +20,7 @@ using RainBot.Services.WebUi;
 using RainBot.Services.Mcp;
 using RainBot.Services.Bots;
 using RainBot.Services.OneBot;
+using RainBot.Services.Page;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 DateTimeOffset appStartTime = DateTimeOffset.UtcNow;
@@ -29,6 +30,13 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient("duckduckgo"); // DuckDuckGo 搜索客户端
 builder.Services.AddHttpClient("deepseek");   // DeepSeek LLM 客户端
+builder.Services.AddHttpClient("page_reader", client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(sp => PageUrlPolicy.CreateHandler(
+        sp.GetRequiredService<RuntimeConfig>().Config.Page.UsePublicDns
+            ? sp.GetRequiredService<PublicPageDnsResolver>().ResolveAsync : null));
+builder.Services.AddHttpClient("page_dns", client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(PublicPageDnsResolver.CreateHandler);
+builder.Services.AddSingleton<PublicPageDnsResolver>();
 builder.Services.Configure<RainConfig>(builder.Configuration.GetSection("Rain"));
 builder.Services.Configure<WebUiOptions>(builder.Configuration.GetSection("Rain:WebUi"));
 
@@ -53,6 +61,7 @@ builder.Services.AddSingleton<BotIdentityResolver>();
 builder.Services.AddSingleton<QQBotService>(); // 无状态（HttpClient/MemoryCache 线程安全），被 singleton 的 SendQueue/FunService 消费，必须 singleton
 builder.Services.AddHostedService<QqGatewayService>(); // 每个启用的 QqOfficial 实例一条 WS 连接
 builder.Services.AddSingleton<MessageDispatcher>();
+builder.Services.AddSingleton<QqEventCapture>();
 builder.Services.AddSingleton<MessageQueue>();
 builder.Services.AddHostedService(static sp => sp.GetRequiredService<MessageQueue>()); // 消息队列消费者（必须宿主化才会消费）
 builder.Services.AddSingleton<MessageProcessor>();
@@ -97,6 +106,13 @@ builder.Services.AddSingleton<SearxngSearchProvider>();
 builder.Services.AddSingleton<TavilySearchProvider>();
 builder.Services.AddSingleton<ISearchProvider, ConfiguredSearchProvider>(); // 按 Search.Provider 热切换（tavily 额度用尽自动回退 bing）
 builder.Services.AddSingleton<WebSearchTool>();
+builder.Services.AddSingleton<OpenGraphReader>();
+builder.Services.AddSingleton<ISiteReader, BilibiliReader>();
+builder.Services.AddSingleton<LinkPrefetcher>();
+builder.Services.AddSingleton<SiteReaderRegistry>();
+builder.Services.AddSingleton<PageReaderHttp>();
+builder.Services.AddSingleton<PageService>();
+builder.Services.AddSingleton<PageTools>();
 builder.Services.AddSingleton<ProfileTools>();
 builder.Services.AddSingleton<AdminTools>();
 
@@ -153,6 +169,7 @@ using (IServiceScope scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<InteractionTools>().Register(registry);
     _ = scope.ServiceProvider.GetRequiredService<PromptSettingsService>().Current;
     scope.ServiceProvider.GetRequiredService<AdminTools>().Register(registry);
+    scope.ServiceProvider.GetRequiredService<PageTools>().Register(registry);
 
     // 启动即加载 SayNo 词表（首次运行自动生成默认 sayno.json，便于用户直接编辑）
     _ = scope.ServiceProvider.GetRequiredService<SayNoWordsService>().Current;

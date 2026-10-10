@@ -169,6 +169,14 @@ public class RuntimeConfig
             string normalized = NormalizeKey(key);
             switch (normalized)
             {
+                case "Page.PrefetchEnabled": _config.Page.PrefetchEnabled = ParseBool(value, nameof(_config.Page.PrefetchEnabled)); return true;
+                case "Page.BudgetSeconds": _config.Page.BudgetSeconds = ParseInt(value, nameof(_config.Page.BudgetSeconds)); return true;
+                case "Page.MaxLinksPerTurn": _config.Page.MaxLinksPerTurn = ParseInt(value, nameof(_config.Page.MaxLinksPerTurn)); return true;
+                case "Page.LinkLookbackSeconds": _config.Page.LinkLookbackSeconds = ParseNonNegativeInt(value, nameof(_config.Page.LinkLookbackSeconds)); return true;
+                case "Page.RequestTimeoutSeconds": _config.Page.RequestTimeoutSeconds = ParseInt(value, nameof(_config.Page.RequestTimeoutSeconds)); return true;
+                case "Page.CacheMinutes": _config.Page.CacheMinutes = ParseInt(value, nameof(_config.Page.CacheMinutes)); return true;
+                case "Page.MaxResponseKb": _config.Page.MaxResponseKb = ParseInt(value, nameof(_config.Page.MaxResponseKb)); return true;
+                case "Page.MaxChars": _config.Page.MaxChars = ParseInt(value, nameof(_config.Page.MaxChars)); return true;
                 case "Llm.BaseUrl": _config.Llm.BaseUrl = value; return true;
                 case "Llm.ApiKey": _config.Llm.ApiKey = value; return true;
                 case "Llm.Model": _config.Llm.Model = value; return true;
@@ -325,6 +333,8 @@ public class RuntimeConfig
 
     private static IEnumerable<string> AllKeys() =>
     [
+        "Page.PrefetchEnabled", "Page.BudgetSeconds", "Page.MaxLinksPerTurn", "Page.LinkLookbackSeconds",
+        "Page.RequestTimeoutSeconds", "Page.CacheMinutes", "Page.MaxResponseKb", "Page.MaxChars",
         "Llm.BaseUrl", "Llm.ApiKey", "Llm.Model", "Llm.Temperature", "Llm.ToolTemperature", "Llm.TimeoutSeconds",
         "Llm.MaxToolRounds", "Llm.ToolRoundMaxTokens", "Llm.MaxOutputLines", "Llm.MaxOutputChars", "Llm.EnableVision",
         "Trigger.PassiveCooldownSeconds", "Trigger.ImageLookbackSeconds", "Trigger.DensityWindowMinutes", "Trigger.DensityThreshold",

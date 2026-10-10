@@ -60,10 +60,10 @@ public class MessageBacklogTests
         var processor = ActivatorUtilities.CreateInstance<MessageProcessor>(sp);
         await processor.ProcessBatchAsync([
             TestHelpers.Msg("old", "alice", "old question", isAt: true, msgTime: DateTimeOffset.UtcNow.AddMinutes(-1)),
-            TestHelpers.Msg("old", "bob", "/help", isAt: true, msgTime: DateTimeOffset.UtcNow.AddMinutes(-1))
+            TestHelpers.Msg("old", "bob", "/admin help", isAt: true, msgTime: DateTimeOffset.UtcNow.AddMinutes(-1))
         ], CancellationToken.None);
         Assert.Equal(0, calls);
-        Assert.Equal(2, sp.GetRequiredService<HistoryStore>().Count("old"));
+        Assert.Equal(1, sp.GetRequiredService<HistoryStore>().Count("old")); // 已识别指令不进入模型历史
         Assert.True(sp.GetRequiredService<GroupStateManager>().GetOrCreate("old").LastMessageUtc > DateTimeOffset.MinValue);
     }
 

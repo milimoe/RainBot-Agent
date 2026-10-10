@@ -15,10 +15,52 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
     private readonly Database _db = db;
     private readonly ILogger<HistoryStore> _logger = logger;
     private readonly ConcurrentDictionary<string, LinkedList<HistoryEntry>> _histories = new();
+    private readonly ConcurrentDictionary<string, List<(string Content, DateTimeOffset Time)>> _outgoing = new();
+
+    // 在平台请求之前登记，覆盖回显早于发送完成的竞争；也用于屏蔽指令响应与调试内容的回显。
+    public void RegisterOutgoing(string groupOpenId, string content)
+    {
+        var recent = _outgoing.GetOrAdd(groupOpenId, _ => []);
+        lock (recent)
+        {
+            recent.RemoveAll(x => DateTimeOffset.UtcNow - x.Time > TimeSpan.FromMinutes(2));
+            recent.Add((content.Trim(), DateTimeOffset.UtcNow));
+            if (recent.Count > 64) recent.RemoveRange(0, recent.Count - 64);
+        }
+    }
+
+    private bool IsOutgoingEcho(string groupOpenId, string content)
+    {
+        if (!_outgoing.TryGetValue(groupOpenId, out var recent)) return false;
+        lock (recent)
+        {
+            recent.RemoveAll(x => DateTimeOffset.UtcNow - x.Time > TimeSpan.FromMinutes(2));
+            return recent.Any(x => x.Content == content.Trim());
+        }
+    }
+
+    /// <summary>只在发送成功后记录实际回复正文；不依赖平台回显，不包含调试推理。</summary>
+    public void AppendBotReply(string groupOpenId, string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return;
+        var list = _histories.GetOrAdd(groupOpenId, _ => []);
+        lock (list)
+        {
+            list.AddLast(new HistoryEntry
+            {
+                UserOpenId = RainBot.Services.WebUi.WebUiBridge.BotMarker,
+                IsBot = true,
+                Content = content,
+                Time = DateTimeOffset.UtcNow
+            });
+            while (list.Count > _config.Config.Context.MaxHistoryPerGroup) list.RemoveFirst();
+        }
+    }
 
     /// <summary>追加一条历史（尾部），超上限时头部整条丢弃。纯图片消息以 [图片] 占位入库。</summary>
     public async Task AppendAsync(string groupOpenId, IncomingMessage message)
     {
+        if (message.IsFromBot && IsOutgoingEcho(groupOpenId, message.Content)) return;
         string content = message.DisplayContent;
         LinkedList<HistoryEntry> list = _histories.GetOrAdd(groupOpenId, _ => []);
         lock (list)
@@ -28,10 +70,13 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
                 UserOpenId = message.SenderOpenId,
                 Nickname = message.Username,
                 Content = content,
+                VideoUrls = RainBot.Services.Page.LinkPrefetcher.Extract(message),
                 Time = message.ReceivedAt,
                 IsAt = message.IsAtRobot,
                 ImageUrls = message.ImageUrls,
-                MsgIdx = message.MsgIdx
+                MsgIdx = message.MsgIdx,
+                RefMsgIdx = message.RefMsgIdx,
+                QuotedContent = message.QuotedContent
             });
             int max = _config.Config.Context.MaxHistoryPerGroup;
             while (list.Count > max)
@@ -130,6 +175,41 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
         return null;
     }
 
+    public List<string> FindRecentVideoUrls(string groupOpenId, DateTimeOffset cutoff)
+    {
+        if (!_histories.TryGetValue(groupOpenId, out LinkedList<HistoryEntry>? list)) return [];
+        lock (list)
+        {
+            for (var node = list.Last; node != null; node = node.Previous)
+            {
+                if (node.Value.Time >= cutoff && node.Value.VideoUrls.Count > 0) return [.. node.Value.VideoUrls];
+            }
+        }
+        return [];
+    }
+
+    /// <summary>插嘴时的连续讨论片段：最近五分钟、最多二十条，间隔超过两分钟视为新一段。
+    /// 保留所有发言者与机器人回复；不混入触发之后才到达的消息。</summary>
+    public List<HistoryEntry> GetDiscussion(string groupOpenId, DateTimeOffset at)
+    {
+        if (!_histories.TryGetValue(groupOpenId, out var list)) return [];
+        List<HistoryEntry> result = [];
+        DateTimeOffset previous = at;
+        lock (list)
+        {
+            for (var node = list.Last; node != null && result.Count < 20; node = node.Previous)
+            {
+                var entry = node.Value;
+                if (entry.Time > at) continue;
+                if (entry.Time < at.AddMinutes(-5) || previous - entry.Time > TimeSpan.FromMinutes(2)) break;
+                result.Add(entry);
+                previous = entry.Time;
+            }
+        }
+        result.Reverse();
+        return result;
+    }
+
     /// <summary>从头部整条删除（压缩前防御第一步）</summary>
     public int TrimHead(string groupOpenId, int count)
     {
@@ -173,6 +253,8 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
 /// <summary>一条历史消息</summary>
 public class HistoryEntry
 {
+    public bool IsBot { get; init; }
+    public List<string> VideoUrls { get; init; } = [];
     public string? Nickname { get; init; }
     public required string UserOpenId { get; init; }
     public required string Content { get; init; }
@@ -184,4 +266,6 @@ public class HistoryEntry
 
     /// <summary>本条消息索引（官方 msg_idx，仅内存）：供他人引用本条时按 ref_msg_idx 回溯</summary>
     public string MsgIdx { get; init; } = "";
+    public string RefMsgIdx { get; init; } = "";
+    public string QuotedContent { get; init; } = "";
 }

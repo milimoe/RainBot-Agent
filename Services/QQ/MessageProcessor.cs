@@ -8,6 +8,7 @@ using RainBot.Services.Safety;
 using RainBot.Services.Trigger;
 using RainBot.Services.WebUi;
 using RainBot.Services.Workflow;
+using RainBot.Services.Page;
 
 namespace RainBot.Services.QQ;
 
@@ -30,6 +31,7 @@ public class MessageProcessor
     private readonly RuntimeConfig _config;
     private readonly ILogger<MessageProcessor> _logger;
     private readonly WebUiBridge? _webUi;
+    private readonly LinkPrefetcher? _links;
 
     public MessageProcessor(
         GroupStateManager states,
@@ -44,7 +46,8 @@ public class MessageProcessor
         FunService funService,
         RuntimeConfig config,
         ILogger<MessageProcessor> logger,
-        WebUiBridge? webUi = null)
+        WebUiBridge? webUi = null,
+        LinkPrefetcher? links = null)
     {
         _states = states;
         _inputFilter = inputFilter;
@@ -59,6 +62,7 @@ public class MessageProcessor
         _config = config;
         _logger = logger;
         _webUi = webUi;
+        _links = links;
     }
 
     public Task ProcessAsync(IncomingMessage message, CancellationToken ct)
@@ -119,9 +123,11 @@ public class MessageProcessor
         // 2. 输入风控：@ 消息命中敏感内容 → 不回应（仅标记观察）；
         //    普通消息命中敏感内容 → 不回应 @ 时同样不参与随机插嘴（避免拿敏感话头开涮）
         bool sensitive = _inputFilter.Check(message.Content) != null;
-        // 3. 历史入库（所有消息都记录，供上下文与话题分析）。
+        // 已识别的指令只走指令处理链，不进入 LLM 历史（包括过期或拒绝执行的指令）。
+        ParsedCommand? command = message.IsFromBot ? null : _commandParser.Parse(message.Content);
+        // 3. 普通聊天历史入库。
         //    SkipSideEffects 时跳过：全量事件已入库，避免同一消息在上下文里出现两次。
-        if (!message.SkipSideEffects)
+        if (!message.SkipSideEffects && command == null)
         {
             await _historyStore.AppendAsync(message.GroupOpenId, message);
         }
@@ -135,7 +141,6 @@ public class MessageProcessor
 
         // 4. 指令处理（无需 @，群里直接发送指令即可；@ 发送同样有效，管理员指令按权限放行）
         {
-            ParsedCommand? command = _commandParser.Parse(message.Content);
             if (command != null)
             {
                 // @ 发送的指令视为一次被动触发（进入冷却），直接发送的指令不占用被动冷却
@@ -160,6 +165,7 @@ public class MessageProcessor
                             BotId = message.BotId,
                             GroupOpenId = message.GroupOpenId,
                             Content = filtered,
+                            ExcludeFromContext = true,
                             IsPrivate = message.IsPrivate,
                             // 被动回复的 msg_id 仅对 @ 事件消息有效（官方约束），全量模式消息直接主动发送
                             MsgId = message.IsFullMessage ? null : message.MsgId
@@ -220,8 +226,8 @@ public class MessageProcessor
             _logger.LogDebug("被动触发通过（{Kind}），进入工作流：group={Group} msg={MsgId}", randomChat ? "随机插嘴" : "@", message.GroupOpenId, message.MsgId);
         }
 
-        // 7. 构建触发上下文（L2 画像召回进 Block F，下轮丢弃；插嘴召回说话人画像用于个性化搭话）
-        string recalled = !string.IsNullOrEmpty(message.SenderOpenId)
+        // 7. 被 @ 时召回个人画像；插嘴以多人讨论为中心，避免画像抢占当前话题。
+        string recalled = !randomChat && !string.IsNullOrEmpty(message.SenderOpenId)
             ? await _profileRecaller.RecallAsync(message.GroupOpenId, message.SenderOpenId)
             : "";
         // 图片与引用：本条附件/引用自带优先，其次按 ref_msg_idx 本地回溯，最后按时间窗回溯本人最近的图
@@ -235,6 +241,9 @@ public class MessageProcessor
         }
         imageUrls = imageUrls.Distinct(StringComparer.Ordinal).ToList();
 
+        List<string>? quotedVideoUrls = string.IsNullOrEmpty(message.RefMsgIdx) ? null
+            : _historyStore.FindByMsgIdx(message.GroupOpenId, message.RefMsgIdx)?.VideoUrls;
+        List<PageResult> linkResults = _links == null ? [] : await _links.PrefetchAsync(message, fresh, quotedText, now, ct, quotedVideoUrls);
         TriggerContext ctx = new()
         {
             BotId = message.BotId,
@@ -243,14 +252,17 @@ public class MessageProcessor
             IsPrivate = message.IsPrivate,
             Type = randomChat ? TriggerType.RandomChat : TriggerType.Passive,
             Reason = randomChat
-                ? "随机搭话（群友在群里说话但没 @ 你，群消息历史最后一条就是触发消息）"
+                ? "旁听群聊（最近发言仅是插嘴机会，请结合近期多人讨论决定是否开口）"
                 : message.IsPrivate ? "私聊互动" : "被群友 @ 互动",
             SenderOpenId = message.SenderOpenId,
             SenderNickname = message.Username,
+            CurrentContent = message.DisplayContent,
+            SenderIsAdmin = message.IsAdmin,
             PendingMessages = fresh.Count > 1
                 ? fresh.Select(m => new PendingSpeaker(m.SenderOpenId, m.Username, m.DisplayContent)).ToList()
                 : [],
             RecalledProfile = recalled,
+            LinkResults = linkResults,
             ImageUrls = imageUrls,
             QuotedContent = quotedText,
             AllowProfileUpdate = false

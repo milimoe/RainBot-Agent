@@ -142,6 +142,7 @@ public class WorkflowRunner(
                     BotId = ctx.BotId,
                     GroupOpenId = ctx.GroupOpenId,
                     Content = content,
+                    ContextContent = text,
                     IsPrivate = ctx.IsPrivate,
                     AtUserId = toolCtx.RequestedAtUserId,
                     MsgId = replyMsgId

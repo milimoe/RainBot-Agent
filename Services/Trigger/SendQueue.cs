@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using RainBot.Services.Bots;
 using RainBot.Services.Config;
+using RainBot.Services.Context;
 using RainBot.Services.QQ;
 using RainBot.Services.WebUi;
 
@@ -27,6 +28,7 @@ public class SendQueue : BackgroundService
     private readonly ConcurrentDictionary<string, List<DateTimeOffset>> _groupSendWindow = new();
     private readonly BotStatus _botStatus;
     private readonly WebUiBridge? _webUi;
+    private readonly HistoryStore? _history;
 
     /// <summary>发送消息序号（防服务器按 msg_seq 去重）</summary>
     private long _msgSeq = 0;
@@ -40,7 +42,7 @@ public class SendQueue : BackgroundService
     /// <summary>退避基数（毫秒）：1.5s → 3s → 6s</summary>
     internal const int RetryBackoffBaseMs = 1500;
 
-    public SendQueue(BotSenderRouter senderRouter, BotSendStats sendStats, RuntimeConfig config, GroupStateManager groupStates, ILogger<SendQueue> logger, BotStatus botStatus, WebUiBridge? webUi = null)
+    public SendQueue(BotSenderRouter senderRouter, BotSendStats sendStats, RuntimeConfig config, GroupStateManager groupStates, ILogger<SendQueue> logger, BotStatus botStatus, WebUiBridge? webUi = null, HistoryStore? history = null)
     {
         _senderRouter = senderRouter;
         _sendStats = sendStats;
@@ -49,6 +51,7 @@ public class SendQueue : BackgroundService
         _logger = logger;
         _botStatus = botStatus;
         _webUi = webUi;
+        _history = history;
         _channel = Channel.CreateUnbounded<SendTask>();
     }
 
@@ -97,6 +100,8 @@ public class SendQueue : BackgroundService
                 switch (outcome)
                 {
                     case SendOutcome.Sent:
+                        if (!task.ExcludeFromContext)
+                            _history?.AppendBotReply(task.GroupOpenId, task.ContextContent ?? task.Content);
                         // 记录机器人发言时间：供暖群"最后一条消息是自己则不暖群"判定
                         // （含试聊仿真，保证仿真模式下暖群判定行为一致）
                         _groupStates.MarkBotSpeak(task.GroupOpenId, DateTimeOffset.UtcNow);
@@ -191,6 +196,7 @@ public class SendQueue : BackgroundService
             MsgSeq = Interlocked.Increment(ref _msgSeq)
         };
         SendResult result;
+        _history?.RegisterOutgoing(task.GroupOpenId, task.Content);
         try
         {
             result = await _senderRouter.SendAsync(request);
@@ -204,7 +210,7 @@ public class SendQueue : BackgroundService
         task.LastError = result.Error;
         await _sendStats.RecordAsync(botId, result.Success, result.Success ? null : result.Error);
         _botStatus.ReceivedMessages++; // 复用计数仅作统计占位，不参与限流
-        if (_webUi != null)
+        if (result.Success && _webUi != null)
         {
             await _webUi.PublishBotMessageAsync(task.GroupOpenId, task.Content);
         }
@@ -226,6 +232,10 @@ public class SendTask
     public required string GroupOpenId { get; init; }
 
     public required string Content { get; init; }
+    /// <summary>纯回复正文；调试推理、统计等仅发送给用户，不回流到模型。</summary>
+    public string? ContextContent { get; init; }
+    /// <summary>已处理指令的响应不进入 LLM 历史。</summary>
+    public bool ExcludeFromContext { get; init; }
 
     /// <summary>被动回复时引用原消息 ID</summary>
     public string? MsgId { get; init; }
