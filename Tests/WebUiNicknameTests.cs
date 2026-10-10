@@ -11,14 +11,16 @@ namespace RainBot.Tests;
 public class WebUiNicknameTests
 {
     [Fact]
-    public async Task 私聊昵称随历史持久化_无需创建群友画像()
+    public async Task 私聊昵称随历史持久化_私聊消息按会话作用域建档()
     {
         await using var provider = await TestHost.BuildReadyAsync();
         var message = new IncomingMessage { MsgId = "private", SenderOpenId = "alice", GroupOpenId = "bot:palice", Content = "hi", Username = "私聊小明", IsPrivate = true };
         await provider.GetRequiredService<Services.Trigger.GroupStateManager>().OnMessageAsync(message);
         await provider.GetRequiredService<Services.Context.HistoryStore>().AppendAsync(message.GroupOpenId, message);
         var db = provider.GetRequiredService<Database>();
-        Assert.Null(await db.GetUserProfileAsync(message.GroupOpenId, "alice"));
+        var profile = await db.GetUserProfileAsync(message.GroupOpenId, "alice");
+        Assert.NotNull(profile);
+        Assert.Equal("私聊小明", profile!.Nickname);
         Assert.Equal("私聊小明", Assert.Single(await db.GetRecentMessagesAsync(message.GroupOpenId, 1)).Nickname);
         Assert.Equal("私聊小明", await provider.GetRequiredService<UserIdentityResolver>().GetNicknameAsync(message.GroupOpenId, "alice"));
         await db.InitializeAsync(); // 新列迁移重复运行不会失败。

@@ -27,12 +27,13 @@ public class GroupStateManager
 
     public GroupState GetOrCreate(string groupOpenId) => _states.GetOrAdd(groupOpenId, static id => new GroupState { GroupOpenId = id });
 
-    /// <summary>群消息到达：更新统计（休眠计数）与静默计时</summary>
+    /// <summary>消息到达（群聊/私聊）：更新统计（休眠计数）与静默计时</summary>
     public async Task OnMessageAsync(IncomingMessage message)
     {
         if (!message.IsFromBot && !message.SkipSideEffects)
             _identities.LearnNickname(message.GroupOpenId, message.SenderOpenId, message.Username);
-        if (!message.IsFromBot && !message.IsPrivate && !message.SkipSideEffects && !string.IsNullOrWhiteSpace(message.SenderOpenId))
+        // 私聊也按会话作用域（{实例Id}:p{用户OpenID}）建档，画像工具在私聊中才有用户可解析。
+        if (!message.IsFromBot && !message.SkipSideEffects && !string.IsNullOrWhiteSpace(message.SenderOpenId))
         {
             await _db.BumpUserActivityAsync(message.GroupOpenId, message.SenderOpenId, message.Username, message.ReceivedAt);
             _anchors.Invalidate(message.GroupOpenId);

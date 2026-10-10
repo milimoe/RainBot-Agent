@@ -17,7 +17,7 @@ public class UserIdentityTests
     private const string Bob = "12345678bbbbbbbbbbbbbbbbbbbbbbbb";
 
     [Fact]
-    public async Task 群消息建档_昵称空值不覆盖_排除私聊和机器人()
+    public async Task 消息建档_昵称空值不覆盖_私聊群聊作用域隔离_机器人除外()
     {
         using var sp = await TestHost.BuildReadyAsync();
         var states = sp.GetRequiredService<GroupStateManager>();
@@ -30,7 +30,27 @@ public class UserIdentityTests
         Assert.Equal("小明", profile!.Nickname);
         Assert.Equal(2, profile.InteractionCount);
         Assert.Null(await db.GetUserProfileAsync(Group, Bob));
-        Assert.Null(await db.GetUserProfileAsync("qq:private", Bob));
+        // 私聊消息只进入自己的会话作用域（{实例}:p{用户}），不落群作用域
+        var privateProfile = await db.GetUserProfileAsync("qq:private", Bob);
+        Assert.NotNull(privateProfile);
+        Assert.Equal(1, privateProfile!.InteractionCount);
+    }
+
+    [Fact]
+    public async Task 私聊建档后_画像工具可按短标识解析触发者()
+    {
+        using var sp = await TestHost.BuildReadyAsync();
+        var states = sp.GetRequiredService<GroupStateManager>();
+        var identities = sp.GetRequiredService<UserIdentityResolver>();
+        string privateScope = "qq:p" + Alice;
+        await states.OnMessageAsync(new IncomingMessage
+        {
+            GroupOpenId = privateScope, MsgId = "m1", SenderOpenId = Alice,
+            Content = "记录我的画像，我是雨的管理员", Username = "心音", IsAtRobot = true, IsPrivate = true
+        });
+        ResolutionResult resolution = await identities.ResolveAsync(privateScope, UserIdentityResolver.ShortId(Alice));
+        Assert.Equal(Alice, resolution.User!.OpenId);
+        Assert.Null(resolution.Message);
     }
 
     [Fact]

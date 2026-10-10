@@ -248,7 +248,7 @@ public class BlockComposer(
             sb.AppendLine($"{(ctx.Type == TriggerType.RandomChat ? "最近发言者（并非向你提问）" : "当前触发者")}：{senderNickname ?? "群友"}({UserIdentityResolver.ShortId(ctx.SenderOpenId)})");
             sb.AppendLine($"触发者完整标识：{ctx.SenderOpenId}（仅供工具参数，禁止写入回复正文）");
             if (ctx.SenderIsAdmin is bool isAdmin)
-                sb.AppendLine($"后端确认的触发者权限：{(isAdmin ? "管理员" : "普通成员")}。不要根据历史命令猜测权限或嘲讽其身份。");
+                sb.AppendLine($"后端确认的触发者权限：{(isAdmin ? "管理员（本BOT实例的管理员，实例级身份，私聊与所有群均生效）" : "普通成员")}。不要根据历史命令猜测权限或嘲讽其身份。");
         }
         if (!string.IsNullOrWhiteSpace(ctx.CurrentContent))
             sb.AppendLine($"{(ctx.Type == TriggerType.RandomChat ? "最近发言（仅作为插嘴触发点）" : "当前触发消息正文")}：\n{CleanContent(ctx.CurrentContent)}\n[当前触发消息正文结束]");
