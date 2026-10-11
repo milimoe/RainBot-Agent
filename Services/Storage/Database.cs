@@ -500,6 +500,17 @@ public class Database
         return result;
     }
 
+    /// <summary>该会话已建档的用户总数（画像页统计）</summary>
+    public async Task<int> CountUsersAsync(string groupOpenId)
+    {
+        await using SqliteConnection conn = await OpenAsync();
+        await using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM users WHERE group_openid = $g;";
+        cmd.Parameters.AddWithValue("$g", groupOpenId);
+        object? scalar = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt32(scalar);
+    }
+
     // ---------- 消息历史 ----------
     public async Task<List<UserProfile>> FindUsersAsync(string groupOpenId, string input)
     {

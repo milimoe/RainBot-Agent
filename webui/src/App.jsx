@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, AuthError, getToken, openEventStream, setToken } from './lib/api.js';
-import { IconBook, IconChat, IconGear, IconLog, IconPerson, IconPulse, IconRobot, IconSliders } from './components/Icons.jsx';
+import { IconBook, IconChat, IconGear, IconLog, IconPerson, IconPulse, IconRobot, IconSliders, IconUsers } from './components/Icons.jsx';
 import { Toasts, toast } from './components/ui.jsx';
 import ChatPage from './pages/ChatPage.jsx';
 import CommandsPage from './pages/CommandsPage.jsx';
@@ -10,12 +10,14 @@ import StatusPage from './pages/StatusPage.jsx';
 import LogsPage from './pages/LogsPage.jsx';
 import BotsPage from './pages/BotsPage.jsx';
 import PersonasPage from './pages/PersonasPage.jsx';
+import ProfilesPage from './pages/ProfilesPage.jsx';
 
 const PAGES = [
   { id: 'chat', label: '消息', icon: IconChat },
   { id: 'commands', label: '指令', icon: IconBook },
   { id: 'bots', label: '机器人', icon: IconRobot },
   { id: 'personas', label: '人设', icon: IconPerson },
+  { id: 'profiles', label: '画像', icon: IconUsers },
   { id: 'config', label: '配置', icon: IconSliders },
   { id: 'settings', label: '设置', icon: IconGear },
   { id: 'logs', label: '日志', icon: IconLog },
@@ -111,6 +113,7 @@ export default function App() {
       {page === 'commands' && <CommandsPage />}
       {page === 'bots' && <BotsPage />}
       {page === 'personas' && <PersonasPage onAuthFail={() => setNeedToken(true)} />}
+      {page === 'profiles' && <ProfilesPage onAuthFail={() => setNeedToken(true)} />}
       {page === 'config' && <ConfigPage onAuthFail={() => setNeedToken(true)} />}
       {page === 'settings' && <SettingsPage boot={boot} onAuthFail={() => setNeedToken(true)} />}
       {page === 'logs' && <LogsPage onAuthFail={() => setNeedToken(true)} />}

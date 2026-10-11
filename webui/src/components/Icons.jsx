@@ -26,6 +26,17 @@ export function IconPerson({ size = 22, ...p }) {
   );
 }
 
+export function IconUsers({ size = 22, ...p }) {
+  return (
+    <svg width={size} height={size} {...base} {...p}>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20v-1.5a6.5 6.5 0 0 1 13 0V20" />
+      <path d="M16 4.6a3.5 3.5 0 0 1 0 6.8" />
+      <path d="M17.5 14.4a6.5 6.5 0 0 1 4 5.6V20" />
+    </svg>
+  );
+}
+
 export function IconSliders({ size = 22, ...p }) {
   return (
     <svg width={size} height={size} {...base} {...p}>

@@ -324,6 +324,43 @@ public static class WebUiApi
             });
         });
 
+        // ---------- 画像查看（只读：群画像 + 成员画像） ----------
+        // 敏感字段 sensitive 不出 WebUI（与 LLM 侧画像召回同一隐私边界）。
+        api.MapGet("/groups/{groupId}/profiles", async (string groupId, Database db, int? limit) =>
+        {
+            int take = Math.Clamp(limit ?? 500, 1, 1000);
+            GroupProfile? groupProfile = await db.GetGroupProfileAsync(groupId);
+            List<UserProfile> users = await db.GetTopUsersAsync(groupId, take);
+            int total = await db.CountUsersAsync(groupId);
+            return Results.Json(new
+            {
+                group = groupId,
+                groupProfile = groupProfile == null ? null : new
+                {
+                    type = groupProfile.Type,
+                    taboos = groupProfile.Taboos,
+                    summary = groupProfile.Summary,
+                    muted = groupProfile.Muted,
+                    degraded = groupProfile.Degraded
+                },
+                total,
+                truncated = total > users.Count,
+                users = users.Select(u => new
+                {
+                    userOpenId = u.UserOpenId,
+                    shortId = UserIdentityResolver.ShortId(u.UserOpenId),
+                    nickname = u.Nickname,
+                    tags = u.Tags,
+                    interests = u.Interests,
+                    habits = u.Habits,
+                    summary = u.Summary,
+                    lastActive = u.LastActive,
+                    interactionCount = u.InteractionCount,
+                    profileUpdatedAt = u.ProfileUpdatedAt
+                })
+            });
+        });
+
         // ---------- 群操作：静默 / 重置上下文 ----------
         api.MapPost("/groups/{groupId}/mute", async (string groupId, GroupStateManager states, HttpRequest request) =>
         {
