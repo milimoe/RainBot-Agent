@@ -46,6 +46,7 @@ public static class TestHost
         services.AddSingleton<RuntimeConfig>();
         services.AddSingleton<PromptSettingsService>();
         services.AddSingleton<PersonaCatalog>();
+        services.AddSingleton<LanguageStyleCatalog>();
         services.AddSingleton<UserIdentityResolver>();
         services.AddSingleton<InteractionTools>();
         services.AddSingleton<PersonaLoader>();

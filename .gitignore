@@ -1,6 +1,7 @@
 # 运行时数据
 Data/
 Logs/
+skills/styles/
 *.db
 *.db-wal
 *.db-shm

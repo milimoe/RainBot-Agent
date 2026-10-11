@@ -162,6 +162,24 @@ public static class WebUiApi
         });
 
         // ---------- 人设库：标识名与 bot_name 分开维护 ----------
+        api.MapGet("/language-styles", (LanguageStyleCatalog styles) => Results.Json(new { styles = styles.List(), maxSkillChars = LanguageStyleCatalog.MaxSkillChars }));
+        api.MapDelete("/language-styles/{name}", (string name, PersonaCatalog catalog, LanguageStyleCatalog styles) =>
+        {
+            string? error = catalog.DeleteLanguageStyle(name);
+            return error == null ? Results.Json(new { styles = styles.List() }) : Results.Json(new { error }, statusCode: 400);
+        });
+        api.MapPost("/language-styles", async (LanguageStyleCatalog styles, HttpRequest request) =>
+        {
+            try
+            {
+                JsonNode? body = await ReadBodyAsync(request);
+                var style = styles.Import(body?["name"]?.GetValue<string>() ?? "", body?["skillMarkdown"]?.GetValue<string>());
+                return Results.Json(new { style, styles = styles.List() });
+            }
+            catch (ArgumentException ex) { return Results.Json(new { error = ex.Message }, statusCode: 400); }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            { return Results.Json(new { error = "语言风格请求格式错误。" }, statusCode: 400); }
+        });
         api.MapGet("/personas", (PersonaCatalog catalog) => Results.Json(new { personas = catalog.List(), defaults = PromptSettings.Default }));
         api.MapPost("/personas", async (PersonaCatalog catalog, HttpRequest request) =>
             await SavePersonaAsync(catalog, request, null));

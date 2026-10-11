@@ -6,7 +6,7 @@ namespace RainBot.Services.Persona;
 
 public sealed record PersonaDocument(string Name, string BotName, string Path, string Content, PromptSettings Settings, bool IsDefault);
 
-public sealed class PersonaCatalog(RuntimeConfig config, PromptSettingsService prompts, BotInstanceStore bots)
+public sealed class PersonaCatalog(RuntimeConfig config, PromptSettingsService prompts, BotInstanceStore bots, LanguageStyleCatalog styles)
 {
     private readonly Lock _lock = new();
     public string DirectoryPath => Path.GetDirectoryName(PromptSettingsService.ResolvePath(config.Config.PersonaPath))!;
@@ -48,9 +48,19 @@ public sealed class PersonaCatalog(RuntimeConfig config, PromptSettingsService p
             if (name != "default" && ValidateName(name) is string error) return error;
             if (create && Exists(name)) return "人设标识名已存在。";
             if (!create && !Exists(name)) return "人设不存在。";
-            if (string.IsNullOrWhiteSpace(content)) return "人设 Markdown 正文不能为空。";
             settings ??= PromptSettings.Default;
             if (settings.Validate() is string validation) return validation;
+            if (settings.LanguageStyleEnabled)
+            {
+                try { styles.Read(settings.LanguageStyleName); }
+                catch (Exception ex) when (ex is ArgumentException or IOException)
+                { return "所选语言风格不可用，请先导入有效的 Skill 文档。"; }
+            }
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                if (!settings.LanguageStyleEnabled) return "人设 Markdown 正文不能为空。";
+                content = LanguageStyleCatalog.PersonaTemplate;
+            }
             prompts.Save(PromptPath(name), settings);
             PromptSettingsService.WriteAtomic(MarkdownPath(name), content);
             return null;
@@ -70,6 +80,20 @@ public sealed class PersonaCatalog(RuntimeConfig config, PromptSettingsService p
             File.Delete(path);
             if (File.Exists(PromptPath(name))) File.Delete(PromptPath(name));
             return null;
+        }
+    }
+
+    public string? DeleteLanguageStyle(string name)
+    {
+        lock (_lock)
+        {
+            if (LanguageStyleCatalog.ValidateName(name) is string error) return error;
+            var users = List().Where(persona => persona.Settings.LanguageStyleEnabled
+                && persona.Settings.LanguageStyleName.Equals(name, StringComparison.OrdinalIgnoreCase)).Select(persona => persona.Name).ToList();
+            if (users.Count > 0) return $"该风格正被人设 {string.Join("、", users)} 使用，请先关闭开关或更换风格并保存。";
+            try { styles.Delete(name); return null; }
+            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+            { return ex is ArgumentException ? ex.Message : "语言风格文件删除失败。"; }
         }
     }
 }

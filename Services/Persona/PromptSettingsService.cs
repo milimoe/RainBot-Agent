@@ -6,6 +6,8 @@ namespace RainBot.Services.Persona;
 public sealed record PromptSettings
 {
     public string BotName { get; init; } = "雨";
+    public bool LanguageStyleEnabled { get; init; }
+    public string LanguageStyleName { get; init; } = "";
     public string Intro { get; init; } = "你是一个 QQ 群聊机器人智能体，名为「{name}」。\n以下是你的人设与规则（由管理员维护，可随时修改）：";
     public string PersonaSectionTitle { get; init; } = "人设";
     public string RulesSectionTitle { get; init; } = "铁律 - 必须遵守";
@@ -28,6 +30,8 @@ public sealed record PromptSettings
     public static PromptSettings Default => new();
     public string? Validate()
     {
+        if (LanguageStyleEnabled && LanguageStyleCatalog.ValidateName(LanguageStyleName) is string styleError)
+            return styleError;
         if (new[] { BotName, Intro, PersonaSectionTitle, RulesSectionTitle, IdentitySectionTitle }.Any(string.IsNullOrWhiteSpace))
             return "机器人名称、开场说明和段落标题不能为空。";
         if (Rules == null || IdentityNotes == null || Rules.Any(string.IsNullOrWhiteSpace) || IdentityNotes.Any(string.IsNullOrWhiteSpace))

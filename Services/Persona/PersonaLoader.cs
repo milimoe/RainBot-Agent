@@ -3,7 +3,7 @@ using RainBot.Services.Bots;
 namespace RainBot.Services.Persona;
 
 /// <summary>按实例选用人设，保存后下一轮对话即时生效。</summary>
-public class PersonaLoader(PromptSettingsService prompts, PersonaCatalog catalog, BotInstanceStore bots, ILogger<PersonaLoader> logger)
+public class PersonaLoader(PromptSettingsService prompts, PersonaCatalog catalog, BotInstanceStore bots, ILogger<PersonaLoader> logger, LanguageStyleCatalog styles)
 {
     public string GetSystemPrompt(string? botId = null)
     {
@@ -27,6 +27,19 @@ public class PersonaLoader(PromptSettingsService prompts, PersonaCatalog catalog
             PersonaDocument document = catalog.Read(name);
             persona = document.Content;
             settings = document.Settings;
+        }
+        if (settings.LanguageStyleEnabled)
+        {
+            persona = LanguageStyleCatalog.PersonaTemplate;
+            try { persona = styles.Compose(settings.LanguageStyleName); }
+            catch (Exception ex) when (ex is ArgumentException or IOException)
+            { logger.LogWarning("语言风格 {Name} 不可用，使用固定人设模板", settings.LanguageStyleName); }
+            settings = settings with
+            {
+                Rules = settings.Rules.Select(rule => rule == PromptSettings.Default.Rules[0]
+                    ? "输出风格：按所选语言风格 Skill 表达，以短句为主，保证信息完整；不要输出改写过程、自检清单或括号内心理描写。"
+                    : rule).ToArray()
+            };
         }
         return BuildSystemPrompt(persona, settings);
     }

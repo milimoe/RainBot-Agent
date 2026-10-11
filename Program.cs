@@ -87,6 +87,7 @@ builder.Services.AddSingleton<ReActLoop>();
 builder.Services.AddSingleton<CacheMonitor>();
 builder.Services.AddSingleton<PromptSettingsService>();
 builder.Services.AddSingleton<PersonaCatalog>();
+builder.Services.AddSingleton<LanguageStyleCatalog>();
 builder.Services.AddSingleton<UserIdentityResolver>();
 builder.Services.AddSingleton<InteractionTools>();
 builder.Services.AddSingleton<PersonaLoader>();
