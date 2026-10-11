@@ -1,7 +1,11 @@
 namespace RainBot.Services.Page;
 
 /// <summary>外部资料，不代表机器人已经浏览了视频、音频或完整文章。</summary>
-public sealed record PageResult(string Status, string Url, string Reader = "", string Title = "", string Summary = "", string Error = "");
+public sealed record PageResult(string Status, string Url, string Reader = "", string Title = "", string Summary = "", string Error = "")
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public RainBot.Services.Preprocessing.ParsedContentCard? DisplayCard { get; init; }
+}
 
 public interface ISiteReader
 {

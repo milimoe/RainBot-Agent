@@ -78,6 +78,18 @@ public class RainConfig
 
     /// <summary>公网页面读取和 B 站文本链接预取；卡片接入暂未启用。</summary>
     public PageConfig Page { get; set; } = new();
+
+    /// <summary>公开 GitHub 链接自动解析，独立于 B 站预取开关。</summary>
+    public GitHubConfig GitHub { get; set; } = new();
+}
+
+public class GitHubConfig
+{
+    public bool Enabled { get; set; } = true;
+    public bool SendParsedContent { get; set; } = true;
+    public int BudgetSeconds { get; set; } = 3;
+    public int MaxLinksPerTurn { get; set; } = 2;
+    public int MaxChars { get; set; } = 3000;
 }
 
 public class PageConfig
@@ -85,6 +97,7 @@ public class PageConfig
     /// <summary>启动期选项：使用固定公网 DoH 取代系统 DNS；默认关闭。</summary>
     public bool UsePublicDns { get; set; } = false;
     public bool PrefetchEnabled { get; set; } = true;
+    public bool SendParsedContent { get; set; } = true;
     public int BudgetSeconds { get; set; } = 2;
     public int MaxLinksPerTurn { get; set; } = 2;
     public int LinkLookbackSeconds { get; set; } = 180;

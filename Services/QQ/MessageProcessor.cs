@@ -8,7 +8,7 @@ using RainBot.Services.Safety;
 using RainBot.Services.Trigger;
 using RainBot.Services.WebUi;
 using RainBot.Services.Workflow;
-using RainBot.Services.Page;
+using RainBot.Services.Preprocessing;
 
 namespace RainBot.Services.QQ;
 
@@ -31,7 +31,7 @@ public class MessageProcessor
     private readonly RuntimeConfig _config;
     private readonly ILogger<MessageProcessor> _logger;
     private readonly WebUiBridge? _webUi;
-    private readonly LinkPrefetcher? _links;
+    private readonly MessagePreprocessorPipeline? _preprocessors;
 
     public MessageProcessor(
         GroupStateManager states,
@@ -47,7 +47,7 @@ public class MessageProcessor
         RuntimeConfig config,
         ILogger<MessageProcessor> logger,
         WebUiBridge? webUi = null,
-        LinkPrefetcher? links = null)
+        MessagePreprocessorPipeline? preprocessors = null)
     {
         _states = states;
         _inputFilter = inputFilter;
@@ -62,7 +62,7 @@ public class MessageProcessor
         _config = config;
         _logger = logger;
         _webUi = webUi;
-        _links = links;
+        _preprocessors = preprocessors;
     }
 
     public Task ProcessAsync(IncomingMessage message, CancellationToken ct)
@@ -211,9 +211,8 @@ public class MessageProcessor
             {
                 _logger.LogDebug("被动触发未通过（冷却中或非 @ 且未命中插嘴概率）：group={Group} msg={MsgId} isAt={IsAt}", message.GroupOpenId, message.MsgId, message.IsAtRobot);
             }
-            return;
         }
-        if (atTriggered)
+        else if (atTriggered)
         {
             _passiveTrigger.MarkTriggered(message.GroupOpenId, now);
         }
@@ -221,15 +220,12 @@ public class MessageProcessor
         {
             _passiveTrigger.MarkRandomChat(message.GroupOpenId, now);
         }
-        if (_logger.IsEnabled(LogLevel.Debug))
+        if ((atTriggered || randomChat) && _logger.IsEnabled(LogLevel.Debug))
         {
             _logger.LogDebug("被动触发通过（{Kind}），进入工作流：group={Group} msg={MsgId}", randomChat ? "随机插嘴" : "@", message.GroupOpenId, message.MsgId);
         }
 
-        // 7. 被 @ 时召回个人画像；插嘴以多人讨论为中心，避免画像抢占当前话题。
-        string recalled = !randomChat && !string.IsNullOrEmpty(message.SenderOpenId)
-            ? await _profileRecaller.RecallAsync(message.GroupOpenId, message.SenderOpenId)
-            : "";
+        // 链接解析与直接发送独立于 LLM 的被动触发判定。
         // 图片与引用：本条附件/引用自带优先，其次按 ref_msg_idx 本地回溯，最后按时间窗回溯本人最近的图
         (List<string> imageUrls, string quotedText) = ResolveContext(message, now);
         foreach (IncomingMessage other in fresh.Where(m => !ReferenceEquals(m, message)))
@@ -243,7 +239,14 @@ public class MessageProcessor
 
         List<string>? quotedVideoUrls = string.IsNullOrEmpty(message.RefMsgIdx) ? null
             : _historyStore.FindByMsgIdx(message.GroupOpenId, message.RefMsgIdx)?.VideoUrls;
-        List<PageResult> linkResults = _links == null ? [] : await _links.PrefetchAsync(message, fresh, quotedText, now, ct, quotedVideoUrls);
+        List<PreprocessResult> preprocessed = _preprocessors == null ? [] : await _preprocessors.ProcessAsync(
+            new(message, fresh, quotedText, imageUrls, quotedVideoUrls ?? [], now), ct);
+        if (!atTriggered && !randomChat) return;
+
+        // 7. 被 @ 时召回个人画像；插嘴以多人讨论为中心，避免画像抢占当前话题。
+        string recalled = !randomChat && !string.IsNullOrEmpty(message.SenderOpenId)
+            ? await _profileRecaller.RecallAsync(message.GroupOpenId, message.SenderOpenId)
+            : "";
         TriggerContext ctx = new()
         {
             BotId = message.BotId,
@@ -262,7 +265,7 @@ public class MessageProcessor
                 ? fresh.Select(m => new PendingSpeaker(m.SenderOpenId, m.Username, m.DisplayContent)).ToList()
                 : [],
             RecalledProfile = recalled,
-            LinkResults = linkResults,
+            PreprocessedResults = preprocessed,
             ImageUrls = imageUrls,
             QuotedContent = quotedText,
             AllowProfileUpdate = false

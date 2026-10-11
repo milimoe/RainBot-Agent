@@ -92,9 +92,14 @@ public static class TestHost
         services.AddSingleton<Services.Page.PageReaderHttp>();
         services.AddSingleton<Services.Page.OpenGraphReader>();
         services.AddSingleton<Services.Page.ISiteReader, Services.Page.BilibiliReader>();
+        services.AddSingleton<Services.Page.ISiteReader, Services.Page.GitHubReader>();
         services.AddSingleton<Services.Page.SiteReaderRegistry>();
         services.AddSingleton<Services.Page.PageService>();
         services.AddSingleton<Services.Page.LinkPrefetcher>();
+        services.AddSingleton<Services.Preprocessing.IMessagePreprocessor>(sp => sp.GetRequiredService<Services.Page.LinkPrefetcher>());
+        services.AddSingleton<Services.Preprocessing.IMessagePreprocessor, Services.Preprocessing.GitHubLinkPreprocessor>();
+        services.AddSingleton<Services.Preprocessing.MessagePreprocessorPipeline>();
+        services.AddSingleton<Services.Preprocessing.ParsedContentSender>();
         services.AddSingleton<SendQueue>();
         services.AddSingleton<Services.Fun.SayNoWordsService>();
         services.AddSingleton<Services.Fun.OsmImageCatalog>();

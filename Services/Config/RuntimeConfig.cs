@@ -169,7 +169,13 @@ public class RuntimeConfig
             string normalized = NormalizeKey(key);
             switch (normalized)
             {
+                case "GitHub.Enabled": _config.GitHub.Enabled = ParseBool(value, nameof(_config.GitHub.Enabled)); return true;
+                case "GitHub.SendParsedContent": _config.GitHub.SendParsedContent = ParseBool(value, nameof(_config.GitHub.SendParsedContent)); return true;
+                case "GitHub.BudgetSeconds": _config.GitHub.BudgetSeconds = ParseInt(value, nameof(_config.GitHub.BudgetSeconds)); return true;
+                case "GitHub.MaxLinksPerTurn": _config.GitHub.MaxLinksPerTurn = ParseInt(value, nameof(_config.GitHub.MaxLinksPerTurn)); return true;
+                case "GitHub.MaxChars": _config.GitHub.MaxChars = ParseInt(value, nameof(_config.GitHub.MaxChars)); return true;
                 case "Page.PrefetchEnabled": _config.Page.PrefetchEnabled = ParseBool(value, nameof(_config.Page.PrefetchEnabled)); return true;
+                case "Page.SendParsedContent": _config.Page.SendParsedContent = ParseBool(value, nameof(_config.Page.SendParsedContent)); return true;
                 case "Page.BudgetSeconds": _config.Page.BudgetSeconds = ParseInt(value, nameof(_config.Page.BudgetSeconds)); return true;
                 case "Page.MaxLinksPerTurn": _config.Page.MaxLinksPerTurn = ParseInt(value, nameof(_config.Page.MaxLinksPerTurn)); return true;
                 case "Page.LinkLookbackSeconds": _config.Page.LinkLookbackSeconds = ParseNonNegativeInt(value, nameof(_config.Page.LinkLookbackSeconds)); return true;
@@ -333,7 +339,8 @@ public class RuntimeConfig
 
     private static IEnumerable<string> AllKeys() =>
     [
-        "Page.PrefetchEnabled", "Page.BudgetSeconds", "Page.MaxLinksPerTurn", "Page.LinkLookbackSeconds",
+        "GitHub.Enabled", "GitHub.SendParsedContent", "GitHub.BudgetSeconds", "GitHub.MaxLinksPerTurn", "GitHub.MaxChars",
+        "Page.PrefetchEnabled", "Page.SendParsedContent", "Page.BudgetSeconds", "Page.MaxLinksPerTurn", "Page.LinkLookbackSeconds",
         "Page.RequestTimeoutSeconds", "Page.CacheMinutes", "Page.MaxResponseKb", "Page.MaxChars",
         "Llm.BaseUrl", "Llm.ApiKey", "Llm.Model", "Llm.Temperature", "Llm.ToolTemperature", "Llm.TimeoutSeconds",
         "Llm.MaxToolRounds", "Llm.ToolRoundMaxTokens", "Llm.MaxOutputLines", "Llm.MaxOutputChars", "Llm.EnableVision",

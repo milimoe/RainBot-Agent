@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using RainBot.Services.Preprocessing;
 
 namespace RainBot.Services.Page;
 
@@ -55,7 +56,21 @@ public sealed partial class BilibiliReader : ISiteReader
         if (data.TryGetProperty("stat", out JsonElement stat) && stat.ValueKind == JsonValueKind.Object)
             summary += $"；播放：{Number(stat, "view")}；点赞：{Number(stat, "like")}";
         summary += "\n简介：" + Text(data, "desc", 1500);
-        return new("ok", url.AbsoluteUri, "bilibili", title, summary);
+        List<ParsedContentField> fields = [new("UP", owner), new("时长", seconds >= 3600
+            ? $"{seconds / 3600:D2}:{seconds / 60 % 60:D2}:{seconds % 60:D2}" : $"{seconds / 60:D2}:{seconds % 60:D2}")];
+        long published = Number(data, "pubdate");
+        if (published > 0 && published <= 253402271999)
+            fields.Add(new("发布", DateTimeOffset.FromUnixTimeSeconds(published).ToOffset(TimeSpan.FromHours(8)).ToString("yyyy/MM/dd HH:mm")));
+        if (data.TryGetProperty("stat", out var statistics) && statistics.ValueKind == JsonValueKind.Object)
+        {
+            fields.Add(new("播放", Count(Number(statistics, "view"))));
+            fields.Add(new("弹幕", Count(Number(statistics, "danmaku"))));
+            fields.Add(new("点赞", Count(Number(statistics, "like"))));
+        }
+        return new("ok", url.AbsoluteUri, "bilibili", title, summary)
+        {
+            DisplayCard = new("bilibili", title, Text(data, "desc", 1500), fields, NormalizeCover(Text(data, "pic", 512)))
+        };
     }
 
     private static string Text(JsonElement value, string key, int maxChars)
@@ -67,5 +82,17 @@ public sealed partial class BilibiliReader : ISiteReader
     private static long Number(JsonElement value, string key) => value.ValueKind == JsonValueKind.Object
         && value.TryGetProperty(key, out JsonElement item) && item.ValueKind == JsonValueKind.Number
         && item.TryGetInt64(out long number) ? Math.Max(0, number) : 0;
+
+    internal static string NormalizeCover(string value)
+    {
+        if (value.StartsWith("//", StringComparison.Ordinal)) value = "https:" + value;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var url) || url.Scheme is not ("http" or "https")
+            || !string.IsNullOrEmpty(url.UserInfo) || url.Port is not (80 or 443)
+            || !url.IdnHost.EndsWith(".hdslb.com", StringComparison.OrdinalIgnoreCase)) return "";
+        return new UriBuilder(url) { Scheme = "https", Port = -1, Fragment = "" }.Uri.AbsoluteUri;
+    }
+    private static string Count(long value) => value >= 100000000 ? (value / 100000000d).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "亿"
+        : value >= 10000 ? (value / 10000d).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "万"
+        : value.ToString(System.Globalization.CultureInfo.InvariantCulture);
     [GeneratedRegex(@"^/video/(BV[0-9A-Za-z]{10})(?:/|$)", RegexOptions.None, 100)] private static partial Regex VideoPath();
 }

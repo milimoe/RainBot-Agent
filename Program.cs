@@ -21,6 +21,7 @@ using RainBot.Services.Mcp;
 using RainBot.Services.Bots;
 using RainBot.Services.OneBot;
 using RainBot.Services.Page;
+using RainBot.Services.Preprocessing;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 DateTimeOffset appStartTime = DateTimeOffset.UtcNow;
@@ -108,7 +109,12 @@ builder.Services.AddSingleton<ISearchProvider, ConfiguredSearchProvider>(); // æ
 builder.Services.AddSingleton<WebSearchTool>();
 builder.Services.AddSingleton<OpenGraphReader>();
 builder.Services.AddSingleton<ISiteReader, BilibiliReader>();
+builder.Services.AddSingleton<ISiteReader, GitHubReader>();
 builder.Services.AddSingleton<LinkPrefetcher>();
+builder.Services.AddSingleton<IMessagePreprocessor>(sp => sp.GetRequiredService<LinkPrefetcher>());
+builder.Services.AddSingleton<IMessagePreprocessor, GitHubLinkPreprocessor>();
+builder.Services.AddSingleton<MessagePreprocessorPipeline>();
+builder.Services.AddSingleton<ParsedContentSender>();
 builder.Services.AddSingleton<SiteReaderRegistry>();
 builder.Services.AddSingleton<PageReaderHttp>();
 builder.Services.AddSingleton<PageService>();

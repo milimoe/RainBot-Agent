@@ -2,11 +2,31 @@ using System.Text.RegularExpressions;
 using RainBot.Models;
 using RainBot.Services.Config;
 using RainBot.Services.Context;
+using RainBot.Services.Preprocessing;
 
 namespace RainBot.Services.Page;
 
-public sealed partial class LinkPrefetcher(PageService pages, RuntimeConfig config, HistoryStore history, ILogger<LinkPrefetcher>? logger = null)
+public sealed partial class LinkPrefetcher(PageService pages, RuntimeConfig config, HistoryStore history, ILogger<LinkPrefetcher>? logger = null) : IMessagePreprocessor
 {
+    public string Name => "视频链接";
+    public bool SendParsedContent => config.Config.Page.SendParsedContent;
+    // 网络预算最多 10 秒，管线额外留出取消和结果整理时间。
+    public TimeSpan Timeout => TimeSpan.FromSeconds(11);
+
+    public async Task<IReadOnlyList<PreprocessedText>> ProcessAsync(MessagePreprocessContext context, CancellationToken cancellationToken)
+    {
+        var results = await PrefetchAsync(context.Current, context.Batch, context.QuotedText,
+            context.Now, cancellationToken, context.QuotedVideoUrls);
+        int max = Math.Clamp(config.Config.Page.MaxChars, 100, 800);
+        return results.Select(result =>
+        {
+            string text = $"标题：{result.Title}\n{result.Summary}";
+            if (text.Length > max) text = text[..max] + "…";
+            return new PreprocessedText(result.Url, result.Status,
+                result.Status == "ok" ? "只提供视频元信息，未观看视频。\n" + text : "", result.Error) { DisplayCard = result.DisplayCard };
+        }).ToList();
+    }
+
     public static List<string> Extract(string content)
     {
         // 卡片正文只用于展示；目标地址由协议层从 jump_url 提取。

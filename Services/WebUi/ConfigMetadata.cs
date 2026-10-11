@@ -12,13 +12,19 @@ public static class ConfigMetadata
     /// <summary>类型：text / number / double / percent / bool / secret / stringlist</summary>
     public static readonly IReadOnlyList<ConfigMeta> All =
     [
+        new("GitHub.Enabled", "GitHub 解析", "自动读取 GitHub 链接", "回复前自动读取公开仓库、Issue、PR、Commit、Release 和文本文件", "bool"),
+        new("GitHub.SendParsedContent", "GitHub 解析", "直接发送解析资料", "成功解析后直接发送一条资料消息，随 Markdown 回复模式排版，无需 LLM", "bool"),
+        new("GitHub.BudgetSeconds", "GitHub 解析", "读取预算（秒）", "本轮全部 GitHub 链接的总等待预算", "number", 1, 10),
+        new("GitHub.MaxLinksPerTurn", "GitHub 解析", "每轮链接上限", "优先当前正文、引用，再处理本批其他消息", "number", 1, 4),
+        new("GitHub.MaxChars", "GitHub 解析", "每条资料字符上限", "标题与正文合计；超过上限明确标注截断", "number", 200, 4000),
         new("Page.PrefetchEnabled", "页面读取", "B 站链接自动读取", "回复前读取文本及官 Q 图文卡片中的 BV 视频链接和 b23 短链，不处理小程序卡片", "bool"),
+        new("Page.SendParsedContent", "页面读取", "直接发送 B 站资料", "成功解析后直接发送一条视频资料消息，随 Markdown 回复模式排版，无需 LLM", "bool"),
         new("Page.BudgetSeconds", "页面读取", "自动读取预算（秒）", "本轮全部预取的总等待上限，超时明确告知模型；实际限制 1–10 秒", "number", 1, 10),
         new("Page.MaxLinksPerTurn", "页面读取", "每轮视频链接上限", "超过上限的链接不预取；实际限制 1–4 条", "number", 1, 4),
         new("Page.LinkLookbackSeconds", "页面读取", "视频链接回溯（秒）", "指代性追问时回溯群内最近视频链接；0 关闭，图片回溯保持原行为", "number", 0, 3600),
         new("Page.RequestTimeoutSeconds", "页面读取", "读取超时（秒）", "open_page 单次读取总预算，包含排队、跳转及下载；实际限制 1–60 秒", "number", 1, 60),
         new("Page.CacheMinutes", "页面读取", "页面缓存（分钟）", "成功结果缓存时长；失败仅按当前链接缓存 60 秒", "number", 1, 1440),
-        new("Page.MaxResponseKb", "页面读取", "页面大小上限（KB）", "解压后的响应体上限；仅接受 HTML 页面", "number", 1, 2048),
+        new("Page.MaxResponseKb", "页面读取", "页面大小上限（KB）", "解压后的单次响应体上限；HTML 页面或受支持站点的 JSON 接口", "number", 1, 2048),
         new("Page.MaxChars", "页面读取", "摘要字符上限", "open_page 返回摘要的长度，标题和状态另计", "number", 100, 800),
         // ---------- LLM ----------
         new("Llm.BaseUrl", "LLM", "接口地址", "DeepSeek API 地址（OpenAI 兼容）", "text"),

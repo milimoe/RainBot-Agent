@@ -17,6 +17,7 @@ public sealed class PageService(PageReaderHttp http, SiteReaderRegistry readers,
         try { url = PageUrlPolicy.Validate(input); }
         catch (InvalidOperationException ex) { return new("blocked", "", Error: ex.Message); }
         if (BilibiliReader.TryGetBvid(url) is { } bvid) url = BilibiliReader.VideoUrl(bvid);
+        if (GitHubLink.Parse(url.AbsoluteUri) is { } github) url = github.Url;
         if (_cache.TryGetValue(url.AbsoluteUri, out PageResult? cached)) return cached!;
         using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(config.Config.Page.RequestTimeoutSeconds, 1, 60)));

@@ -188,7 +188,7 @@ public class SendQueue : BackgroundService
             BotId = botId,
             RawGroupId = BotKeys.GetRawPeerId(task.GroupOpenId),
             Content = task.Content,
-            Markdown = _config.Config.MarkdownReply,
+            Markdown = task.Markdown ?? _config.Config.MarkdownReply,
             ReplyMsgId = task.MsgId,
             AtUserId = isPrivate ? null : task.AtUserId,
             ImageUrl = task.ImageUrl,
@@ -232,6 +232,8 @@ public class SendTask
     public required string GroupOpenId { get; init; }
 
     public required string Content { get; init; }
+    /// <summary>指定本条消息格式；为空时沿用全局 MarkdownReply。</summary>
+    public bool? Markdown { get; init; }
     /// <summary>纯回复正文；调试推理、统计等仅发送给用户，不回流到模型。</summary>
     public string? ContextContent { get; init; }
     /// <summary>已处理指令的响应不进入 LLM 历史。</summary>

@@ -7,6 +7,7 @@ using RainBot.Models;
 using RainBot.Services.Config;
 using RainBot.Services.Context;
 using RainBot.Services.Page;
+using RainBot.Services.Preprocessing;
 using Xunit;
 
 namespace RainBot.Tests;
@@ -110,6 +111,31 @@ public class BilibiliReaderTests
         Assert.Equal(1, calls);
         provider.GetRequiredService<RuntimeConfig>().Config.Page.LinkLookbackSeconds = 0;
         Assert.Empty(await prefetch.PrefetchAsync(followup, [followup], "", DateTimeOffset.UtcNow, default));
+    }
+
+    [Fact]
+    public async Task 视频解析通过通用管线保留元信息说明与配置开关()
+    {
+        using ServiceProvider provider = await TestHost.BuildReadyAsync();
+        using PageService pages = Service(provider, _ => Json(ApiJson));
+        var config = provider.GetRequiredService<RuntimeConfig>();
+        LinkPrefetcher prefetch = new(pages, config, provider.GetRequiredService<HistoryStore>());
+        MessagePreprocessorPipeline pipeline = new([prefetch], NullLogger<MessagePreprocessorPipeline>.Instance);
+        var message = TestHelpers.Msg("group", "alice", Video);
+        MessagePreprocessContext context = new(message, [message], "", [], [], DateTimeOffset.UtcNow);
+        var result = Assert.Single(await pipeline.ProcessAsync(context, default));
+        Assert.Equal("ok", result.Content.Status);
+        Assert.Equal(Video, result.Content.Source);
+        Assert.Contains("测试视频", result.Content.Text);
+        Assert.Contains("未观看视频", result.Content.Text);
+        var composed = await provider.GetRequiredService<BlockComposer>().BuildAsync(new TriggerContext
+        {
+            GroupOpenId = "group", Type = TriggerType.Passive, Reason = "测试", PreprocessedResults = [result]
+        });
+        Assert.Contains("测试视频", composed.Messages[3].Content);
+        Assert.DoesNotContain("测试视频", composed.Messages[2].Content);
+        config.Config.Page.PrefetchEnabled = false;
+        Assert.Empty(await pipeline.ProcessAsync(context, default));
     }
 
     [Fact]

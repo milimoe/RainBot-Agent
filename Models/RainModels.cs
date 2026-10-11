@@ -134,6 +134,9 @@ public class TriggerContext
     /// <summary>本轮视频链接的外部元信息及读取状态，不写入历史。</summary>
     public List<RainBot.Services.Page.PageResult> LinkResults { get; init; } = [];
 
+    /// <summary>自动预处理得到的文本资料，仅注入本轮 Block F，不写入历史。</summary>
+    public List<RainBot.Services.Preprocessing.PreprocessResult> PreprocessedResults { get; init; } = [];
+
     /// <summary>被回复/引用的消息内容（回复触发时用于理解上下文）</summary>
     public string? QuotedContent { get; init; }
 
