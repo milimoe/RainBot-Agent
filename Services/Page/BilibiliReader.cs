@@ -1,10 +1,11 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using RainBot.Services.Preprocessing;
 
 namespace RainBot.Services.Page;
 
-public sealed partial class BilibiliReader : ISiteReader
+public sealed partial class BilibiliReader(BilibiliCookieProvider? cookies = null) : ISiteReader
 {
     public static bool IsBilibiliHost(string host) => host.TrimEnd('.').Equals("bilibili.com", StringComparison.OrdinalIgnoreCase)
         || host.TrimEnd('.').EndsWith(".bilibili.com", StringComparison.OrdinalIgnoreCase);
@@ -27,9 +28,28 @@ public sealed partial class BilibiliReader : ISiteReader
             bvid = TryGetBvid(resolved.Url);
         }
         if (bvid == null) return new("unavailable", url.AbsoluteUri, "bilibili", Error: "短链未指向支持的 BV 视频页面。");
-        var response = await http.ReadAsync(new Uri($"https://api.bilibili.com/x/web-interface/view?bvid={bvid}"), maxBytes, cancellationToken, json: true);
-        return Read(VideoUrl(bvid), response.Content);
+        Uri api = new($"https://api.bilibili.com/x/web-interface/view?bvid={bvid}");
+        Uri page = VideoUrl(bvid);
+        try
+        {
+            return Read(page, (await http.ReadAsync(api, maxBytes, cancellationToken, json: true)).Content);
+        }
+        catch (PageHttpException exception) when (exception.Status == HttpStatusCode.PreconditionFailed)
+        {
+            // 412 = 风控拦截；缓存 buvid 可能已失效，重新领取后重试一次，仍被拦则转入 risk 兜底。
+            cookies?.Invalidate();
+            try
+            {
+                return Read(page, (await http.ReadAsync(api, maxBytes, cancellationToken, json: true)).Content);
+            }
+            catch (PageHttpException retry) when (retry.Status == HttpStatusCode.PreconditionFailed)
+            {
+                return Risk(page);
+            }
+        }
     }
+
+    private static PageResult Risk(Uri url) => new("risk", url.AbsoluteUri, "bilibili", Error: "B 站风控拦截（HTTP 412），未取得视频信息。");
 
     public PageResult Read(Uri url, string content)
     {
@@ -39,8 +59,9 @@ public sealed partial class BilibiliReader : ISiteReader
             || code.ValueKind != JsonValueKind.Number || !code.TryGetInt32(out int status))
             return new("unavailable", url.AbsoluteUri, "bilibili", Error: "视频接口返回格式异常。");
         if (status != 0)
-            return new("unavailable", url.AbsoluteUri, "bilibili", Error: status == -352
-                ? "B 站接口风控，未取得视频信息。" : $"B 站接口返回错误码 {status}，未取得视频信息。");
+            return status is -352 or -412
+                ? new("risk", url.AbsoluteUri, "bilibili", Error: $"B 站接口风控（{status}），未取得视频信息。")
+                : new("unavailable", url.AbsoluteUri, "bilibili", Error: $"B 站接口返回错误码 {status}，未取得视频信息。");
         if (!root.TryGetProperty("data", out JsonElement data) || data.ValueKind != JsonValueKind.Object)
             return new("unavailable", url.AbsoluteUri, "bilibili", Error: "视频接口没有返回数据。");
         string title = Text(data, "title", 180);

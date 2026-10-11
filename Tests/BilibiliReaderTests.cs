@@ -74,16 +74,119 @@ public class BilibiliReaderTests
     }
 
     [Theory]
-    [InlineData("{\"code\":-352}", "风控")]
-    [InlineData("{\"code\":-404}", "-404")]
-    [InlineData("{\"code\":0,\"data\":{}}", "标题")]
-    [InlineData("{\"unexpected\":1}", "格式异常")]
-    public void API失败不编造视频资料(string json, string error)
+    [InlineData("{\"code\":-352}", "risk", "风控")]
+    [InlineData("{\"code\":-412}", "risk", "风控")]
+    [InlineData("{\"code\":-404}", "unavailable", "-404")]
+    [InlineData("{\"code\":0,\"data\":{}}", "unavailable", "标题")]
+    [InlineData("{\"unexpected\":1}", "unavailable", "格式异常")]
+    public void API失败不编造视频资料(string json, string status, string error)
     {
         PageResult result = new BilibiliReader().Read(new Uri(Video), json);
-        Assert.Equal("unavailable", result.Status);
+        Assert.Equal(status, result.Status);
         Assert.Empty(result.Title);
         Assert.Contains(error, result.Error);
+    }
+
+    private const string SpiJson = """{"code":0,"data":{"b_3":"test-buvid3","b_4":"test-buvid4"}}""";
+
+    [Fact]
+    public async Task 自动领取的buvidCookie随B站请求发送且缓存复用()
+    {
+        using ServiceProvider provider = TestHost.Build().Provider;
+        int spiCalls = 0;
+        List<string> cookies = [];
+        FakeHttpClientFactory clients = new(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/x/frontend/finger/spi")
+            {
+                spiCalls++;
+                return Json(SpiJson);
+            }
+            cookies.Add(request.Headers.TryGetValues("Cookie", out IEnumerable<string>? values) ? string.Join("; ", values) : "");
+            return Json(ApiJson);
+        });
+        BilibiliCookieProvider bilibili = new(clients, provider.GetRequiredService<RuntimeConfig>(), NullLogger<BilibiliCookieProvider>.Instance);
+        using PageService pages = new(new PageReaderHttp(clients, bilibili),
+            new SiteReaderRegistry([new BilibiliReader(bilibili)], new OpenGraphReader()),
+            provider.GetRequiredService<RuntimeConfig>(), NullLogger<PageService>.Instance);
+        Assert.Equal("ok", (await pages.ReadAsync(Video)).Status);
+        Assert.Equal("buvid3=test-buvid3; buvid4=test-buvid4", Assert.Single(cookies));
+        Assert.Equal(1, spiCalls);
+        await pages.ReadAsync("https://www.bilibili.com/video/BV1xx411c7mD/");
+        Assert.Equal(2, cookies.Count);
+        Assert.Equal(1, spiCalls); // 24 小时缓存内不重复领取
+    }
+
+    [Fact]
+    public async Task 手动配置的Cookie优先且不请求spi()
+    {
+        using ServiceProvider provider = TestHost.Build().Provider;
+        provider.GetRequiredService<RuntimeConfig>().Config.Page.BilibiliCookies = "buvid3=manual; SESSDATA=abc";
+        int spiCalls = 0;
+        List<string> cookies = [];
+        FakeHttpClientFactory clients = new(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/x/frontend/finger/spi") { spiCalls++; return Json(SpiJson); }
+            cookies.Add(request.Headers.TryGetValues("Cookie", out IEnumerable<string>? values) ? string.Join("; ", values) : "");
+            return Json(ApiJson);
+        });
+        BilibiliCookieProvider bilibili = new(clients, provider.GetRequiredService<RuntimeConfig>(), NullLogger<BilibiliCookieProvider>.Instance);
+        using PageService pages = new(new PageReaderHttp(clients, bilibili),
+            new SiteReaderRegistry([new BilibiliReader(bilibili)], new OpenGraphReader()),
+            provider.GetRequiredService<RuntimeConfig>(), NullLogger<PageService>.Instance);
+        Assert.Equal("ok", (await pages.ReadAsync(Video)).Status);
+        Assert.Equal("buvid3=manual; SESSDATA=abc", Assert.Single(cookies));
+        Assert.Equal(0, spiCalls);
+    }
+
+    [Fact]
+    public async Task 风控412后重新领取Cookie重试成功()
+    {
+        using ServiceProvider provider = TestHost.Build().Provider;
+        int spiCalls = 0;
+        int videoCalls = 0;
+        List<string> cookies = [];
+        FakeHttpClientFactory clients = new(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/x/frontend/finger/spi")
+            {
+                spiCalls++;
+                return Json("{\"code\":0,\"data\":{\"b_3\":\"buvid-" + spiCalls + "\",\"b_4\":\"b4-" + spiCalls + "\"}}");
+            }
+            videoCalls++;
+            cookies.Add(request.Headers.TryGetValues("Cookie", out IEnumerable<string>? values) ? string.Join("; ", values) : "");
+            return videoCalls == 1 ? new HttpResponseMessage(HttpStatusCode.PreconditionFailed) : Json(ApiJson);
+        });
+        BilibiliCookieProvider bilibili = new(clients, provider.GetRequiredService<RuntimeConfig>(), NullLogger<BilibiliCookieProvider>.Instance);
+        using PageService pages = new(new PageReaderHttp(clients, bilibili),
+            new SiteReaderRegistry([new BilibiliReader(bilibili)], new OpenGraphReader()),
+            provider.GetRequiredService<RuntimeConfig>(), NullLogger<PageService>.Instance);
+        Assert.Equal("ok", (await pages.ReadAsync(Video)).Status);
+        Assert.Equal(2, videoCalls);
+        Assert.Equal(2, cookies.Count);
+        Assert.Equal("buvid3=buvid-1; buvid4=b4-1", cookies[0]);
+        Assert.Equal("buvid3=buvid-2; buvid4=b4-2", cookies[1]);
+    }
+
+    [Fact]
+    public async Task 风控412重试仍失败时返回risk状态并保留BV页面地址()
+    {
+        using ServiceProvider provider = TestHost.Build().Provider;
+        FakeHttpClientFactory clients = new(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/x/frontend/finger/spi") return Json(SpiJson);
+            return request.RequestUri.Host == "api.bilibili.com"
+                ? new HttpResponseMessage(HttpStatusCode.PreconditionFailed)
+                : Json(ApiJson);
+        });
+        BilibiliCookieProvider bilibili = new(clients, provider.GetRequiredService<RuntimeConfig>(), NullLogger<BilibiliCookieProvider>.Instance);
+        using PageService pages = new(new PageReaderHttp(clients, bilibili),
+            new SiteReaderRegistry([new BilibiliReader(bilibili)], new OpenGraphReader()),
+            provider.GetRequiredService<RuntimeConfig>(), NullLogger<PageService>.Instance);
+        PageResult result = await pages.ReadAsync(Video);
+        Assert.Equal("risk", result.Status);
+        Assert.Equal(Video, result.Url);
+        Assert.Contains("412", result.Error);
     }
 
     [Fact]

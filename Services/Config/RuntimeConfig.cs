@@ -183,6 +183,7 @@ public class RuntimeConfig
                 case "Page.CacheMinutes": _config.Page.CacheMinutes = ParseInt(value, nameof(_config.Page.CacheMinutes)); return true;
                 case "Page.MaxResponseKb": _config.Page.MaxResponseKb = ParseInt(value, nameof(_config.Page.MaxResponseKb)); return true;
                 case "Page.MaxChars": _config.Page.MaxChars = ParseInt(value, nameof(_config.Page.MaxChars)); return true;
+                case "Page.BilibiliCookies": _config.Page.BilibiliCookies = value.Trim(); return true;
                 case "Llm.BaseUrl": _config.Llm.BaseUrl = value; return true;
                 case "Llm.ApiKey": _config.Llm.ApiKey = value; return true;
                 case "Llm.Model": _config.Llm.Model = value; return true;
@@ -341,7 +342,7 @@ public class RuntimeConfig
     [
         "GitHub.Enabled", "GitHub.SendParsedContent", "GitHub.BudgetSeconds", "GitHub.MaxLinksPerTurn", "GitHub.MaxChars",
         "Page.PrefetchEnabled", "Page.SendParsedContent", "Page.BudgetSeconds", "Page.MaxLinksPerTurn", "Page.LinkLookbackSeconds",
-        "Page.RequestTimeoutSeconds", "Page.CacheMinutes", "Page.MaxResponseKb", "Page.MaxChars",
+        "Page.RequestTimeoutSeconds", "Page.CacheMinutes", "Page.MaxResponseKb", "Page.MaxChars", "Page.BilibiliCookies",
         "Llm.BaseUrl", "Llm.ApiKey", "Llm.Model", "Llm.Temperature", "Llm.ToolTemperature", "Llm.TimeoutSeconds",
         "Llm.MaxToolRounds", "Llm.ToolRoundMaxTokens", "Llm.MaxOutputLines", "Llm.MaxOutputChars", "Llm.EnableVision",
         "Trigger.PassiveCooldownSeconds", "Trigger.ImageLookbackSeconds", "Trigger.DensityWindowMinutes", "Trigger.DensityThreshold",

@@ -90,6 +90,7 @@ public static class TestHost
         services.AddSingleton<Services.QQ.BotStatus>();
         services.AddSingleton<Services.QQ.MessageQueue>();
         services.AddSingleton<Services.QQ.MessageProcessor>();
+        services.AddSingleton<Services.Page.BilibiliCookieProvider>();
         services.AddSingleton<Services.Page.PageReaderHttp>();
         services.AddSingleton<Services.Page.OpenGraphReader>();
         services.AddSingleton<Services.Page.ISiteReader, Services.Page.BilibiliReader>();

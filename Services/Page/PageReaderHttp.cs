@@ -3,8 +3,10 @@ using System.Text;
 
 namespace RainBot.Services.Page;
 
-public sealed class PageReaderHttp(IHttpClientFactory clients)
+public sealed class PageReaderHttp(IHttpClientFactory clients, BilibiliCookieProvider? bilibiliCookies = null)
 {
+    internal const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+
     public async Task<(Uri Url, string Content)> ReadAsync(Uri url, int maxBytes, CancellationToken cancellationToken,
         bool json = false, Func<Uri, bool>? stopAt = null, Func<Uri, bool>? allowedUrl = null)
     {
@@ -15,7 +17,7 @@ public sealed class PageReaderHttp(IHttpClientFactory clients)
             if (allowedUrl != null && !allowedUrl(url)) throw new InvalidOperationException("接口跳转到不允许的地址。");
             if (stopAt?.Invoke(url) == true) return (url, "");
             using HttpRequestMessage request = new(HttpMethod.Get, url);
-            request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
+            request.Headers.UserAgent.ParseAdd(BrowserUserAgent);
             request.Headers.Accept.ParseAdd(json ? "application/json" : "text/html, application/xhtml+xml;q=0.9");
             if (json && url.IdnHost == "api.github.com")
             {
@@ -23,7 +25,16 @@ public sealed class PageReaderHttp(IHttpClientFactory clients)
                 request.Headers.Accept.ParseAdd("application/vnd.github+json");
                 request.Headers.Add("X-GitHub-Api-Version", "2026-03-10");
             }
-            if (BilibiliReader.IsBilibiliHost(url.Host)) request.Headers.Referrer = new Uri("https://www.bilibili.com/");
+            if (BilibiliReader.IsBilibiliHost(url.Host) || BilibiliReader.IsShortLink(url))
+            {
+                request.Headers.Referrer = new Uri("https://www.bilibili.com/");
+                // 无 buvid Cookie 的 api.bilibili.com 请求会被风控直接返回 412，短链页同理。
+                if (bilibiliCookies != null)
+                {
+                    string cookie = await bilibiliCookies.GetAsync(cancellationToken);
+                    if (cookie.Length > 0) request.Headers.TryAddWithoutValidation("Cookie", cookie);
+                }
+            }
             using HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             if (response.StatusCode is HttpStatusCode.MovedPermanently or HttpStatusCode.Found or HttpStatusCode.SeeOther
                 or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect)

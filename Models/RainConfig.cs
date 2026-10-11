@@ -107,6 +107,11 @@ public class PageConfig
     public int CacheMinutes { get; set; } = 10;
     public int MaxResponseKb { get; set; } = 512;
     public int MaxChars { get; set; } = 400;
+    /// <summary>
+    /// B 站请求 Cookie（如 "buvid3=…; buvid4=…"，可再附登录账号的 SESSDATA）。
+    /// 留空时自动调用 B 站 spi 接口免登录领取 buvid3/buvid4 并缓存 24 小时。
+    /// </summary>
+    public string BilibiliCookies { get; set; } = "";
 }
 
 /// <summary>

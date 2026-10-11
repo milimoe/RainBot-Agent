@@ -117,6 +117,7 @@ builder.Services.AddSingleton<IMessagePreprocessor, GitHubLinkPreprocessor>();
 builder.Services.AddSingleton<MessagePreprocessorPipeline>();
 builder.Services.AddSingleton<ParsedContentSender>();
 builder.Services.AddSingleton<SiteReaderRegistry>();
+builder.Services.AddSingleton<BilibiliCookieProvider>(); // B 站 buvid Cookie：spi 自动领取 + 手动配置兜底
 builder.Services.AddSingleton<PageReaderHttp>();
 builder.Services.AddSingleton<PageService>();
 builder.Services.AddSingleton<PageTools>();

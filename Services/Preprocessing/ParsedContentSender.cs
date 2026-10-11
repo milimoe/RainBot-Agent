@@ -21,24 +21,45 @@ public sealed partial class ParsedContentSender(
         if (context.Current.SkipSideEffects) return;
         var successful = results.Where(result => result.Status == "ok" && !string.IsNullOrWhiteSpace(result.Text))
             .DistinctBy(result => result.Source).Take(4).ToList();
-        if (successful.Count == 0) return;
         try
         {
             bool markdown = config.Config.MarkdownReply;
-            string? content = FilterContent(Format(processor, successful, markdown), successful);
-            if (content == null) return;
-            cancellationToken.ThrowIfCancellationRequested();
-            await queue.EnqueueAsync(new SendTask
+            if (successful.Count > 0)
             {
-                BotId = context.Current.BotId,
-                GroupOpenId = context.Current.GroupOpenId,
-                IsPrivate = context.Current.IsPrivate,
-                MsgId = context.Current.IsFullMessage ? null : context.Current.MsgId,
-                Markdown = markdown,
-                Content = content,
-                ExcludeFromContext = true
-            });
-            logger.LogDebug("解析资料已入发送队列：{Processor} / {Count} 条", processor, successful.Count);
+                string? content = FilterContent(Format(processor, successful, markdown), successful);
+                if (content != null)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await queue.EnqueueAsync(new SendTask
+                    {
+                        BotId = context.Current.BotId,
+                        GroupOpenId = context.Current.GroupOpenId,
+                        IsPrivate = context.Current.IsPrivate,
+                        MsgId = context.Current.IsFullMessage ? null : context.Current.MsgId,
+                        Markdown = markdown,
+                        Content = content,
+                        ExcludeFromContext = true
+                    });
+                    logger.LogDebug("解析资料已入发送队列：{Processor} / {Count} 条", processor, successful.Count);
+                }
+            }
+            // 风控兜底：B 站 412/-352 时资料缺失，但来源仍是可点的 BV 页面，
+            // Markdown 模式下直接给出播放/原网页链接，群友不必等重试或自己翻聊天记录。
+            if (markdown && RiskFallback(results) is { } riskDraft && FilterContent(riskDraft, results) is { } risk)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await queue.EnqueueAsync(new SendTask
+                {
+                    BotId = context.Current.BotId,
+                    GroupOpenId = context.Current.GroupOpenId,
+                    IsPrivate = context.Current.IsPrivate,
+                    MsgId = context.Current.IsFullMessage ? null : context.Current.MsgId,
+                    Markdown = true,
+                    Content = risk,
+                    ExcludeFromContext = true
+                });
+                logger.LogDebug("B 站风控兜底提示已入发送队列");
+            }
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -74,6 +95,20 @@ public sealed partial class ParsedContentSender(
         if (filtered == null) return null;
         foreach (var (token, url) in protectedUrls) filtered = filtered.Replace(token, url, StringComparison.Ordinal);
         return filtered;
+    }
+
+    /// <summary>B 站风控兜底消息（Markdown 链接）；没有可播放的 BV 号时返回 null。</summary>
+    internal static string? RiskFallback(IReadOnlyList<PreprocessedText> results)
+    {
+        List<string> lines = [];
+        foreach (PreprocessedText result in results)
+        {
+            if (result.Status != "risk" || !Uri.TryCreate(result.Source, UriKind.Absolute, out Uri? url)) continue;
+            if (BilibiliReader.TryGetBvid(url) is not { } bvid) continue;
+            lines.Add($"[立即播放](https://player.bilibili.com/player.html?bvid={bvid}&p=1&autoplay=true)  [原网页]({BilibiliReader.VideoUrl(bvid).AbsoluteUri})");
+        }
+        if (lines.Count == 0) return null;
+        return "## B 站链接解析失败\n\n> B 站风控拦截了本次解析，暂时拿不到视频信息，可以直接点开：\n\n" + string.Join("\n\n", lines);
     }
 
     internal static string Format(string processor, IReadOnlyList<PreprocessedText> results, bool markdown)

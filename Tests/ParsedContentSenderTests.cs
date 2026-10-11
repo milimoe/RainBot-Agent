@@ -284,6 +284,64 @@ public class ParsedContentSenderTests
         Assert.DoesNotContain("<qqbot-", text);
     }
 
+    [Fact]
+    public void 风控兜底格式包含播放与原网页链接且必须有BV号()
+    {
+        string? text = ParsedContentSender.RiskFallback(
+        [
+            new(Video, "risk", Error: "B 站风控拦截（HTTP 412），未取得视频信息。"),
+            new("https://b23.tv/no-bv", "risk", Error: "B 站风控拦截"),
+            new(Video, "ok", Text: "成功资料")
+        ]);
+        Assert.NotNull(text);
+        Assert.Contains("## B 站链接解析失败", text);
+        Assert.Contains("[立即播放](https://player.bilibili.com/player.html?bvid=BV16Faz6tE4F&p=1&autoplay=true)", text);
+        Assert.Contains($"[原网页]({Video})", text);
+        Assert.DoesNotContain("b23.tv", text);
+        Assert.Null(ParsedContentSender.RiskFallback([new(GitHub, "risk", Error: "风控")]));
+        Assert.Null(ParsedContentSender.RiskFallback([new(Video, "timeout", Error: "超时")]));
+    }
+
+    [Fact]
+    public async Task B站风控兜底仅在Markdown模式发送且走输出过滤()
+    {
+        await using var provider = await TestHost.BuildReadyAsync();
+        var sender = provider.GetRequiredService<ParsedContentSender>();
+        var queue = provider.GetRequiredService<SendQueue>();
+        var results = new List<PreprocessedText>
+        {
+            new(Video, "risk", Error: "B 站风控拦截（HTTP 412），未取得视频信息。"),
+            new("https://b23.tv/no-bv", "risk", Error: "B 站风控拦截")
+        };
+        await sender.SendAsync(Context(Video), "视频链接", results, default);
+        Assert.Empty(queue.PeekPendingForTest()); // MarkdownReply 默认关闭，纯文本发不了可点链接
+        provider.GetRequiredService<RuntimeConfig>().Config.MarkdownReply = true;
+        await sender.SendAsync(Context(Video), "视频链接", results, default);
+        var task = Assert.Single(queue.PeekPendingForTest());
+        Assert.True(task.Markdown);
+        Assert.True(task.ExcludeFromContext);
+        Assert.Contains("[立即播放](https://player.bilibili.com/player.html?bvid=BV16Faz6tE4F&p=1&autoplay=true)", task.Content);
+        Assert.Contains($"[原网页]({Video})", task.Content);
+        Assert.DoesNotContain("b23.tv", task.Content);
+        Assert.DoesNotContain("RAINBOT_PUBLIC_URL", task.Content);
+    }
+
+    [Fact]
+    public async Task 成功卡片与风控兜底互不挤占()
+    {
+        await using var provider = await TestHost.BuildReadyAsync();
+        provider.GetRequiredService<RuntimeConfig>().Config.MarkdownReply = true;
+        await provider.GetRequiredService<ParsedContentSender>().SendAsync(Context(Video), "视频链接",
+        [
+            new(Video, Text: "标题：成功视频\n正文"),
+            new("https://www.bilibili.com/video/BV1xx411c7mD/", "risk", Error: "B 站风控拦截（HTTP 412），未取得视频信息。")
+        ], default);
+        var tasks = provider.GetRequiredService<SendQueue>().PeekPendingForTest();
+        Assert.Equal(2, tasks.Count);
+        Assert.Contains("成功视频", tasks[0].Content);
+        Assert.Contains("BV1xx411c7mD", tasks[1].Content);
+    }
+
     private static MessagePreprocessContext Context(string url) => new(new IncomingMessage
     { BotId = "qq", GroupOpenId = "qq:group", SenderOpenId = "user", MsgId = "incoming-id", Content = url }, [], "", [], [], DateTimeOffset.UtcNow);
     private static HttpResponseMessage Json(string json) => new(HttpStatusCode.OK)
