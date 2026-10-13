@@ -108,7 +108,7 @@ public class PageConfig
     public int MaxResponseKb { get; set; } = 512;
     public int MaxChars { get; set; } = 400;
     /// <summary>
-    /// B 站请求 Cookie（如 "buvid3=…; buvid4=…"，可再附登录账号的 SESSDATA）。
+    /// B 站请求 Cookie（如 "buvid3=…; buvid4=…"，可再附登录账号的 SESSDATA），优先于扫码凭据。
     /// 留空时自动调用 B 站 spi 接口免登录领取 buvid3/buvid4 并缓存 24 小时。
     /// </summary>
     public string BilibiliCookies { get; set; } = "";
@@ -369,6 +369,10 @@ public class FunConfig
 
 public class ProfileConfig
 {
+    public bool AutoRefreshEnabled { get; set; } = true;
+    public int AutoRefreshMinutes { get; set; } = 5;
+    public int MinActivityMessages { get; set; } = 8;
+    public int RefreshAfterHours { get; set; } = 24;
     public int DailyUpdateLimit { get; set; } = 1;
     public int ActiveWindowHours { get; set; } = 168;
 }

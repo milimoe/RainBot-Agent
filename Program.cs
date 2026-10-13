@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.DataProtection;
 using RainBot.Models;
 using RainBot.Services.Commands;
 using RainBot.Services.Config;
@@ -29,6 +30,18 @@ DateTimeOffset appStartTime = DateTimeOffset.UtcNow;
 // ---------- 基础服务 ----------
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
+string databasePath = builder.Configuration["Rain:Storage:SqlitePath"] ?? "Data/rainbot.db";
+string keyDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(databasePath, AppContext.BaseDirectory))!, "bilibili-keys");
+Directory.CreateDirectory(keyDirectory);
+if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(keyDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+var dataProtection = builder.Services.AddDataProtection().SetApplicationName("RainBot")
+    .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
+if (OperatingSystem.IsWindows()) dataProtection.ProtectKeysWithDpapi();
+builder.Services.AddHttpClient("bilibili_login", client => { client.Timeout = TimeSpan.FromSeconds(15); client.MaxResponseContentBufferSize = 262144; })
+    .ConfigurePrimaryHttpMessageHandler(sp => PageUrlPolicy.CreateHandler(
+        sp.GetRequiredService<RuntimeConfig>().Config.Page.UsePublicDns
+            ? sp.GetRequiredService<PublicPageDnsResolver>().ResolveAsync : null))
+    .RemoveAllLoggers(); // 登录 URL 与响应可能包含临时密钥，禁止默认 HTTP 日志。
 builder.Services.AddHttpClient("duckduckgo"); // DuckDuckGo 搜索客户端
 builder.Services.AddHttpClient("deepseek");   // DeepSeek LLM 客户端
 builder.Services.AddHttpClient("page_reader", client => client.Timeout = Timeout.InfiniteTimeSpan)
@@ -101,6 +114,8 @@ builder.Services.AddSingleton<WorkflowRunner>();
 // ---------- 画像与工具 ----------
 builder.Services.AddSingleton<AnchorManager>();
 builder.Services.AddSingleton<ProfileRecaller>();
+builder.Services.AddSingleton<ContextCompactor>();
+builder.Services.AddHostedService<ProfileMaintenanceService>();
 builder.Services.AddSingleton<ToolRegistry>();
 builder.Services.AddSingleton<BingSearchProvider>();
 builder.Services.AddSingleton<DuckDuckGoSearchProvider>();
@@ -117,7 +132,8 @@ builder.Services.AddSingleton<IMessagePreprocessor, GitHubLinkPreprocessor>();
 builder.Services.AddSingleton<MessagePreprocessorPipeline>();
 builder.Services.AddSingleton<ParsedContentSender>();
 builder.Services.AddSingleton<SiteReaderRegistry>();
-builder.Services.AddSingleton<BilibiliCookieProvider>(); // B 站 buvid Cookie：spi 自动领取 + 手动配置兜底
+builder.Services.AddSingleton<BilibiliLoginService>();
+builder.Services.AddSingleton<BilibiliCookieProvider>(); // 手动 / 扫码凭据与设备 Cookie
 builder.Services.AddSingleton<PageReaderHttp>();
 builder.Services.AddSingleton<PageService>();
 builder.Services.AddSingleton<PageTools>();

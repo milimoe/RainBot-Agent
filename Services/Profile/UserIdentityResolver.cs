@@ -11,7 +11,9 @@ public sealed class UserIdentityResolver(Database db)
 {
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, string>> _nicknames = new();
 
-    public static string ShortId(string openId) => "u" + (openId.Length > 8 ? openId[..8] : openId);
+    public static string ShortId(string openId) => openId.Length <= 8 ? "u" + openId : "u" + Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(openId)))[..12].ToLowerInvariant();
+    public static string LegacyShortId(string openId) => "u" + (openId.Length > 8 ? openId[..8] : openId);
 
     public void LearnNickname(string groupOpenId, string openId, string? nickname)
     {

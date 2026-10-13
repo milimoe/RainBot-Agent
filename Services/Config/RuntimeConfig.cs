@@ -36,6 +36,7 @@ public class RuntimeConfig
             Dictionary<string, string> overrides = await _db.GetAllSettingsAsync();
             foreach ((string key, string value) in overrides)
             {
+                if (key == RainBot.Services.Page.BilibiliLoginService.StorageKey) continue;
                 // 非运行时配置键静默跳过：
                 // - Bot.AppId / Bot.Secret：旧版网关凭据，由 BotConfigService 负责加载（仅供实例迁移）
                 // - Bot.OpenId：机器人身份自动学习值（BotIdentityResolver 落库），非配置项
@@ -46,11 +47,11 @@ public class RuntimeConfig
                 }
                 if (TryApplyOverride(key, value, out string error))
                 {
-                    _logger.LogInformation("已从数据库加载配置覆盖：{Key} = {Value}", key, value);
+                    _logger.LogInformation("已从数据库加载配置覆盖：{Key} = {Value}", key, LogValue(key, value));
                 }
                 else
                 {
-                    _logger.LogWarning("数据库配置覆盖项无效已跳过：{Key} = {Value}（{Error}）", key, value, error);
+                    _logger.LogWarning("数据库配置覆盖项无效已跳过：{Key} = {Value}（{Error}）", key, LogValue(key, value), error);
                 }
             }
         }
@@ -78,7 +79,7 @@ public class RuntimeConfig
                 return error;
             }
             await _db.UpsertSettingAsync(key, value);
-            _logger.LogInformation("运行时参数已更新：{Key} = {Value}", key, value);
+            _logger.LogInformation("运行时参数已更新：{Key} = {Value}", key, LogValue(key, value));
             return null;
         }
         finally
@@ -90,6 +91,7 @@ public class RuntimeConfig
     /// <summary>读取运行时参数值（含数据库覆盖）</summary>
     public async Task<string?> GetAsync(string key)
     {
+        if (NormalizeKey(key) == NormalizeKey("Page.BilibiliCookies")) return string.IsNullOrEmpty(_config.Page.BilibiliCookies) ? "" : "[已配置]";
         string? dbValue = await _db.GetSettingAsync(key);
         if (dbValue != null) return dbValue;
         return GetDefault(key);
@@ -119,7 +121,7 @@ public class RuntimeConfig
             {
                 return error;
             }
-            _logger.LogInformation("运行时参数已恢复默认：{Key} = {Value}", canonical, defaultValue);
+            _logger.LogInformation("运行时参数已恢复默认：{Key} = {Value}", canonical, LogValue(canonical, defaultValue));
             return null;
         }
         finally
@@ -136,10 +138,11 @@ public class RuntimeConfig
         foreach (string key in AllKeys())
         {
             string? v = overrides.TryGetValue(key, out string? ov) ? ov : GetDefault(key);
-            result.Add((key, v ?? "", overrides.ContainsKey(key)));
+            result.Add((key, key == "Page.BilibiliCookies" ? (string.IsNullOrEmpty(v) ? "" : "[已配置]") : v ?? "", overrides.ContainsKey(key)));
         }
         return result;
     }
+    private static string LogValue(string key, string? value) => NormalizeKey(key) == NormalizeKey("Page.BilibiliCookies") ? "[已隐藏]" : value ?? "";
 
     /// <summary>管理员 OpenID 列表（配置 + 数据库动态维护）。
     /// 旧版全局管理员：管理员已改为按机器人实例维护（BotInstanceStore），此列表保留只读兼容兜底。</summary>
@@ -236,6 +239,10 @@ public class RuntimeConfig
                 case "Fun.CallBrotherDelaySeconds": _config.Fun.CallBrotherDelaySeconds = ParseInt(value, nameof(_config.Fun.CallBrotherDelaySeconds)); return true;
                 case "PromptPath": _config.PromptPath = value; return true;
                 case "Profile.DailyUpdateLimit": _config.Profile.DailyUpdateLimit = ParseNonNegativeInt(value, nameof(_config.Profile.DailyUpdateLimit)); return true;
+                case "Profile.AutoRefreshEnabled": _config.Profile.AutoRefreshEnabled = ParseBool(value, nameof(_config.Profile.AutoRefreshEnabled)); return true;
+                case "Profile.AutoRefreshMinutes": _config.Profile.AutoRefreshMinutes = ParseInt(value, nameof(_config.Profile.AutoRefreshMinutes)); return true;
+                case "Profile.MinActivityMessages": _config.Profile.MinActivityMessages = ParseInt(value, nameof(_config.Profile.MinActivityMessages)); return true;
+                case "Profile.RefreshAfterHours": _config.Profile.RefreshAfterHours = ParseInt(value, nameof(_config.Profile.RefreshAfterHours)); return true;
                 case "Profile.ActiveWindowHours": _config.Profile.ActiveWindowHours = ParseInt(value, nameof(_config.Profile.ActiveWindowHours)); return true;
                 case "Trigger.BacklogMaxAgeSeconds": _config.Trigger.BacklogMaxAgeSeconds = ParseNonNegativeInt(value, nameof(_config.Trigger.BacklogMaxAgeSeconds)); return true;
                 case "PersonaPath": _config.PersonaPath = value; return true;
@@ -360,6 +367,7 @@ public class RuntimeConfig
         "Fun.EnableReverseAt", "Fun.ReverseAtProbability",
         "Fun.EnableCallBrother", "Fun.CallBrotherProbability", "Fun.CallBrotherDelaySeconds",
         "PromptPath", "Profile.DailyUpdateLimit", "Profile.ActiveWindowHours", "Trigger.BacklogMaxAgeSeconds",
+        "Profile.AutoRefreshEnabled", "Profile.AutoRefreshMinutes", "Profile.MinActivityMessages", "Profile.RefreshAfterHours",
         "PersonaPath", "SayNoPath", "PublicBaseUrl", "DebugMode", "DebugShowReasoning", "MarkdownReply",
         "Search.Provider", "Search.SearxngBaseUrl", "Search.TavilyApiKey", "Search.TavilyDailyLimit", "Search.TimeoutSeconds", "Search.MaxResults"
     ];

@@ -518,8 +518,7 @@ public class Database
         await using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT group_openid, user_openid, tags, interests, habits, sensitive, summary, last_active, interaction_count, nickname, profile_updated_at
-            FROM users WHERE group_openid = $g AND
-                (user_openid = $input OR nickname = $input OR ('u' || substr(user_openid, 1, 8)) = $input)
+            FROM users WHERE group_openid = $g
             ORDER BY user_openid;
             """;
         cmd.Parameters.AddWithValue("$g", groupOpenId);
@@ -534,11 +533,13 @@ public class Database
         });
         // Exact openid has precedence over nicknames that happen to equal an identifier.
         UserProfile? exact = users.FirstOrDefault(u => u.UserOpenId == input.Trim());
-        return exact == null ? users : [exact];
+        return exact == null ? users.Where(u => u.Nickname == input.Trim()
+            || Profile.UserIdentityResolver.ShortId(u.UserOpenId) == input.Trim()
+            || Profile.UserIdentityResolver.LegacyShortId(u.UserOpenId) == input.Trim()).ToList() : [exact];
     }
 
     /// <summary>原子检查每日配额并保存画像，避免并发写入绕过配额或覆盖互动计数。</summary>
-    public async Task<bool> TryUpdateUserProfileAsync(UserProfile profile, int dailyLimit, bool bypassQuota)
+    public async Task<bool> TryUpdateUserProfileAsync(UserProfile profile, int dailyLimit, bool bypassQuota, string? expectedUpdatedAt = null)
     {
         await using SqliteConnection conn = await OpenAsync();
         await using SqliteCommand cmd = conn.CreateCommand();
@@ -547,9 +548,11 @@ public class Database
                 profile_updated_at = $ts, updated_at = $ts, profile_update_day = $day,
                 profile_update_count = CASE WHEN profile_update_day = $day THEN profile_update_count + 1 ELSE 1 END
             WHERE group_openid = $g AND user_openid = $u AND
+                ($expected IS NULL OR profile_updated_at = $expected) AND
                 ($bypass = 1 OR (CASE WHEN profile_update_day = $day THEN profile_update_count ELSE 0 END) < $limit);
             """;
         cmd.Parameters.AddWithValue("$g", profile.GroupOpenId);
+        cmd.Parameters.AddWithValue("$expected", (object?)expectedUpdatedAt ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$u", profile.UserOpenId);
         cmd.Parameters.AddWithValue("$tags", JsonSerializer.Serialize(profile.Tags));
         cmd.Parameters.AddWithValue("$interests", profile.Interests);
@@ -757,14 +760,24 @@ public class Database
 
     // ---------- 蒸馏摘要 ----------
 
-    public async Task SaveDistillSummaryAsync(string groupOpenId, string summary)
+    public async Task SaveDistillSummaryAsync(string groupOpenId, string summary, string? expectedReset = null)
     {
         await using SqliteConnection conn = await OpenAsync();
         await using SqliteCommand cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO distill_summaries (group_openid, summary, created_at) VALUES ($g, $s, $ts);";
+        cmd.CommandText = "INSERT INTO distill_summaries (group_openid, summary, created_at) SELECT $g, $s, $ts WHERE $reset IS NULL OR COALESCE((SELECT last_reset FROM group_profiles WHERE group_openid = $g), '') = $reset;";
+        cmd.Parameters.AddWithValue("$reset", (object?)expectedReset ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$g", groupOpenId);
         cmd.Parameters.AddWithValue("$s", summary);
         cmd.Parameters.AddWithValue("$ts", Now());
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task ClearDistillSummariesAsync(string groupOpenId)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM distill_summaries WHERE group_openid = $g;";
+        cmd.Parameters.AddWithValue("$g", groupOpenId);
         await cmd.ExecuteNonQueryAsync();
     }
 

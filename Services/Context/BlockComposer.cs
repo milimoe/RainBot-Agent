@@ -256,11 +256,14 @@ public class BlockComposer(
         {
             sb.AppendLine(ctx.Type == TriggerType.RandomChat ? "本批群聊发言（属于讨论背景，不是逐条向你提问）：" : "本批待回应消息（请合并成一次自然回复）：");
             foreach (PendingSpeaker pending in ctx.PendingMessages)
+            {
                 sb.AppendLine($"{pending.Nickname ?? "群友"}({UserIdentityResolver.ShortId(pending.OpenId)}): {CleanContent(pending.Content)}");
+                if (!string.IsNullOrWhiteSpace(pending.QuotedContent)) sb.AppendLine($"  此人引用他人的消息（不代表此人观点）：{CleanContent(pending.QuotedContent)}");
+            }
         }
         if (ctx.Type != TriggerType.RandomChat && !string.IsNullOrWhiteSpace(ctx.RecalledProfile))
         {
-            sb.AppendLine($"相关群友画像：{ctx.RecalledProfile}");
+            sb.AppendLine($"当前触发者 {UserIdentityResolver.ShortId(ctx.SenderOpenId ?? "")} 的画像（不属于其他发言者）：{ctx.RecalledProfile}");
         }
         if (ctx.LinkResults.Count > 0)
         {
@@ -305,7 +308,7 @@ public class BlockComposer(
             {
                 quoted = quoted[..600] + "…";
             }
-            sb.AppendLine($"被引用的消息：{quoted}");
+            sb.AppendLine($"被引用的消息（他人的原文，不应当作触发者本人的观点）：{quoted}");
         }
         if (ctx.ImageUrls.Count > 0)
         {
@@ -314,6 +317,7 @@ public class BlockComposer(
         }
         if (ctx.Type == TriggerType.Passive)
         {
+            sb.AppendLine("[身份与记忆] 每条消息只归属于其行首的发言者标识，@ 是被提及对象而非说话人；引用不代表引用者观点。同名群友用标识区分，无法确认归属时先澄清。遇到稳定偏好、兴趣或明确的自我介绍时，可按本人标识调用 update_user_profile；只依据其本人发言，不把他人的话或引用写入画像。与过往有关的问题可调用 get_user_profile。");
             sb.AppendLine("[任务] 回答当前触发消息；若有本批待回应消息，则兼顾本批问题。历史只用来理解指代，不要重新回答已结束的话题。当前正文明确给出的链接或引用优先于历史中的旧链接。只根据实际读到的资料回答；视频元信息不能证明你看过画面、剪辑或听过声音，缺少依据时说明限制，不要编造观感。");
         }
         else if (ctx.Type == TriggerType.Warmup)
@@ -339,7 +343,7 @@ public class BlockComposer(
     private static string CleanContent(string content)
     {
         // <@openid>（新格式）或 <@!openid>（历史格式）→ @用户（保留可读性）
-        return Regex.Replace(content, @"<@!?[^>]+>", m => "@用户")
+        return Regex.Replace(content, @"<@!?([^>]+)>", m => "@" + UserIdentityResolver.ShortId(m.Groups[1].Value))
             .Replace("<reply>", "")
             .Replace("</reply>", "")
             .Replace("<break/>", "\n")

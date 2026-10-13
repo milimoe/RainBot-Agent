@@ -18,6 +18,7 @@ public sealed class ContextRecorder
     private const int PageChars = 1200;
     private readonly Lock _lock = new();
     private readonly Dictionary<string, ContextSnapshot> _snapshots = new(StringComparer.Ordinal);
+    public void Clear(string group) { lock (_lock) _snapshots.Remove(group); }
 
     public void Record(string group, IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDef> tools,
         ComposeResult? compose, int watermarkTokens)

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, AuthError } from '../lib/api.js';
 import { Badge, Toggle, toast } from '../components/ui.jsx';
 import { IconSearch } from '../components/Icons.jsx';
+import BilibiliLogin from '../components/BilibiliLogin.jsx';
 
 const SECTION_TITLES = {
   LLM: '🤖 LLM 大模型',
@@ -202,6 +203,7 @@ export default function ConfigPage({ onAuthFail }) {
         </div>
 
         <div className="space-y-5 px-3 pb-10 pt-1 md:px-6">
+          {!query.trim() && <BilibiliLogin onAuthFail={onAuthFail} />}
           {filtered.map((s) => (
             <div key={s.section} ref={(el) => (sectionRefs.current[s.section] = el)} className="scroll-mt-16">
               <div className="mb-2 text-[15px] font-medium">{s.title}</div>

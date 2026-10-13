@@ -5,6 +5,7 @@ namespace RainBot.Services.Page;
 
 public sealed class PageReaderHttp(IHttpClientFactory clients, BilibiliCookieProvider? bilibiliCookies = null)
 {
+    public string BilibiliCacheIdentity => bilibiliCookies?.CacheIdentity ?? "";
     internal const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
     public async Task<(Uri Url, string Content)> ReadAsync(Uri url, int maxBytes, CancellationToken cancellationToken,
@@ -28,10 +29,13 @@ public sealed class PageReaderHttp(IHttpClientFactory clients, BilibiliCookiePro
             if (BilibiliReader.IsBilibiliHost(url.Host) || BilibiliReader.IsShortLink(url))
             {
                 request.Headers.Referrer = new Uri("https://www.bilibili.com/");
-                // 无 buvid Cookie 的 api.bilibili.com 请求会被风控直接返回 412，短链页同理。
+                // B 站身份与设备 Cookie 按当前请求目标选择，重定向后重新判断。
                 if (bilibiliCookies != null)
                 {
                     string cookie = await bilibiliCookies.GetAsync(cancellationToken);
+                    // 账号凭据只发送到 HTTPS B 站匹配域；短链域只允许设备 Cookie。
+                    if (url.Scheme != "https") cookie = "";
+                    else if (BilibiliReader.IsShortLink(url)) cookie = BilibiliCookieProvider.DeviceOnly(cookie);
                     if (cookie.Length > 0) request.Headers.TryAddWithoutValidation("Cookie", cookie);
                 }
             }

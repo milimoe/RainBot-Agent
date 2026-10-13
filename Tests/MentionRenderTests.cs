@@ -5,6 +5,7 @@ using RainBot.Models;
 using RainBot.Services.Config;
 using RainBot.Services.Context;
 using RainBot.Services.QQ;
+using RainBot.Services.Profile;
 using RainBot.Services.Storage;
 using RainBot.Services.Workflow;
 using Xunit;
@@ -39,9 +40,9 @@ public class MentionRenderTests
         string rendered = MentionRenderer.RenderAtTags(content, Mentions());
 
         Assert.StartsWith("@你 帮我看看", rendered);      // 首尾空白去掉，@ 自己 = 「@你」
-        Assert.Contains("@小明 说的", rendered);
-        Assert.Contains("@小红 那条", rendered);
-        Assert.Contains("@用户 这个", rendered);          // 未命中 mentions：沿用原有占位，不瞎猜名字
+        Assert.Contains($"@小明({UserIdentityResolver.ShortId(Alice)}) 说的", rendered);
+        Assert.Contains($"@小红({UserIdentityResolver.ShortId(Bob)}) 那条", rendered);
+        Assert.Contains("@uUNKNOWN 这个", rendered);          // 未命中 mentions：沿用原有占位，不瞎猜名字
         Assert.DoesNotContain("<@!", rendered);
     }
 
@@ -52,8 +53,8 @@ public class MentionRenderTests
         Assert.Equal("今天天气不错", MentionRenderer.RenderAtTags("今天天气不错", Mentions()));
 
         // 有标签但拿不到 mentions（异常推送）：退回改造前的「@用户」占位，行为不劣化
-        Assert.Equal("@用户 在吗", MentionRenderer.RenderAtTags($"<@{Alice}> 在吗", []));
-        Assert.Equal("@用户 在吗", MentionRenderer.RenderAtTags($"<@{Alice}> 在吗", null));
+        Assert.Equal($"@{UserIdentityResolver.ShortId(Alice)} 在吗", MentionRenderer.RenderAtTags($"<@{Alice}> 在吗", []));
+        Assert.Equal($"@{UserIdentityResolver.ShortId(Alice)} 在吗", MentionRenderer.RenderAtTags($"<@{Alice}> 在吗", null));
     }
 
     [Fact]
@@ -70,7 +71,7 @@ public class MentionRenderTests
         await dispatcher.HandleDispatchAsync(Database.LegacyBotId, "GROUP_AT_MESSAGE_CREATE", JsonDocument.Parse(payload).RootElement);
 
         IncomingMessage message = Assert.Single(queue.DrainForTest());
-        Assert.Equal("@你 看看 @小明 说的", message.ContextText);
+        Assert.Equal($"@你 看看 @小明({UserIdentityResolver.ShortId(Alice)}) 说的", message.ContextText);
         Assert.Equal(message.ContextText, message.DisplayContent); // 入库/进上下文用渲染后的文本
         Assert.Contains($"<@!{BotId2}>", message.Content);          // 原始标签保留（判定 @ 语义用）
     }
@@ -90,7 +91,7 @@ public class MentionRenderTests
         """).RootElement;
 
         string contextText = Services.OneBot.OneBotMessage.ExtractContextText(oneBotMessage);
-        Assert.Equal("@999 看看 @123456@全体成员", contextText);
+        Assert.Equal("@u999 看看 @u123456@全体成员", contextText);
         Assert.Equal("看看", Services.OneBot.OneBotMessage.ExtractText(oneBotMessage)); // 纯文本内容不变
     }
 
@@ -138,7 +139,7 @@ public class MentionRenderTests
         string context = string.Join("\n", doc.RootElement.GetProperty("messages")
             .EnumerateArray()
             .Select(m => m.TryGetProperty("content", out JsonElement c) && c.ValueKind == JsonValueKind.String ? c.GetString() : ""));
-        Assert.Contains("@你 看看 @小明 说的", context);   // 历史块里带用户名
+        Assert.Contains($"@你 看看 @小明({UserIdentityResolver.ShortId(Alice)}) 说的", context);   // 历史块里带用户名
         Assert.DoesNotContain("@用户", context);
     }
 

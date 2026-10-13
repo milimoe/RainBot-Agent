@@ -43,7 +43,6 @@ public class WatermarkManager(
             : now - state.LastMessageUtc;
         if (silence >= TimeSpan.FromMinutes(cfg.DegradeResetSilenceMinutes))
         {
-            _historyStore.ClearAll(groupOpenId);
             await _states.ResetContextAsync(groupOpenId);
             _logger.LogInformation("群 {Group} 已静默 {Minutes:0} 分钟，上下文彻底重置，重建缓存", groupOpenId, silence.TotalMinutes);
             return true;
@@ -68,8 +67,7 @@ public class WatermarkManager(
                 : now - state.LastMessageUtc;
             if (silence >= TimeSpan.FromMinutes(cfg.DegradeResetSilenceMinutes))
             {
-                _historyStore.ClearAll(compose.GroupOpenId);
-                await _states.ResetContextAsync(compose.GroupOpenId);
+                await _states.ResetContextAsync(compose.GroupOpenId, acquireLock: false);
                 _logger.LogInformation("群 {Group} 已静默 {Minutes:0} 分钟，上下文彻底重置，重建缓存", compose.GroupOpenId, silence.TotalMinutes);
                 return WatermarkAction.Reset;
             }

@@ -121,7 +121,7 @@ public class BilibiliReaderTests
     public async Task 手动配置的Cookie优先且不请求spi()
     {
         using ServiceProvider provider = TestHost.Build().Provider;
-        provider.GetRequiredService<RuntimeConfig>().Config.Page.BilibiliCookies = "buvid3=manual; SESSDATA=abc";
+        provider.GetRequiredService<RuntimeConfig>().Config.Page.BilibiliCookies = "buvid3=manual; buvid4=manual4; SESSDATA=abc";
         int spiCalls = 0;
         List<string> cookies = [];
         FakeHttpClientFactory clients = new(request =>
@@ -135,7 +135,7 @@ public class BilibiliReaderTests
             new SiteReaderRegistry([new BilibiliReader(bilibili)], new OpenGraphReader()),
             provider.GetRequiredService<RuntimeConfig>(), NullLogger<PageService>.Instance);
         Assert.Equal("ok", (await pages.ReadAsync(Video)).Status);
-        Assert.Equal("buvid3=manual; SESSDATA=abc", Assert.Single(cookies));
+        Assert.Equal("buvid3=manual; buvid4=manual4; SESSDATA=abc", Assert.Single(cookies));
         Assert.Equal(0, spiCalls);
     }
 

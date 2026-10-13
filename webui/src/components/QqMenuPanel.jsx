@@ -33,8 +33,8 @@ const inputCls =
 function SectionCard({ title, desc, right, children }) {
   return (
     <div className="rounded-xl border border-qq-border bg-white p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1 break-words">
           <div className="text-[13px] font-medium">{title}</div>
           {desc ? <div className="mt-0.5 text-[11px] leading-snug text-qq-sub">{desc}</div> : null}
         </div>
@@ -47,7 +47,7 @@ function SectionCard({ title, desc, right, children }) {
 
 function Field({ label, hint, children, wide = false }) {
   return (
-    <label className={`block ${wide ? 'col-span-2' : ''}`}>
+    <label className={`block min-w-0 ${wide ? 'sm:col-span-2' : ''}`}>
       <div className="mb-1 text-xs font-medium text-qq-sub">{label}</div>
       {children}
       {hint ? <div className="mt-1 text-[11px] leading-snug text-qq-sub">{hint}</div> : null}
@@ -173,7 +173,7 @@ export function QqMenuCard({ botId }) {
         <div className="space-y-2.5">
           {items.map((it, i) => (
             <div key={i} className="rounded-lg border border-qq-border p-3">
-              <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 xl:grid-cols-4">
                 <Field label="按钮名称" hint="最多 10 字符（中文汉字算 2 个）">
                   <input className={inputCls} value={it.name} onChange={(e) => patch(i, 'name', e.target.value)} placeholder="如 帮助" />
                 </Field>
@@ -222,7 +222,7 @@ export function QqMenuCard({ botId }) {
                 <div className="mt-2.5 space-y-2 rounded-lg bg-qq-bg/50 p-2.5">
                   {(it.sub_menu_items || []).length === 0 && <div className="text-[11px] text-qq-sub">暂无子菜单（最多 5 项）</div>}
                   {(it.sub_menu_items || []).map((s, j) => (
-                    <div key={j} className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+                    <div key={j} className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 xl:grid-cols-4">
                       <Field label="子菜单名称">
                         <input className={inputCls} value={s.name} onChange={(e) => patchSub(i, j, 'name', e.target.value)} />
                       </Field>
@@ -256,7 +256,7 @@ export function QqMenuCard({ botId }) {
         </div>
       )}
 
-      <div className="mt-3 flex items-center justify-between">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <button
           className="flex items-center gap-1 rounded-md border border-qq-border px-2.5 py-1.5 text-xs hover:bg-qq-hover disabled:opacity-50"
           onClick={addItem}
@@ -509,7 +509,7 @@ function TargetManager({ botId, target, onClose, onChanged }) {
 
   return (
     <div className="mt-3 rounded-lg border border-qq-blue/40 bg-qq-bg/40 p-3">
-      <div className="mb-2.5 flex items-center justify-between">
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
         <div className="text-[13px] font-medium">
           关联对象：{target.panelId}（{isC2c ? '单聊' : '群聊'} · 指定生效）
         </div>
@@ -521,8 +521,8 @@ function TargetManager({ botId, target, onClose, onChanged }) {
       <div className="mb-2.5 flex flex-wrap gap-1.5">
         {list.length === 0 && <span className="text-[11px] text-qq-sub">暂无关联{label}</span>}
         {list.map((id) => (
-          <span key={id} className="flex items-center gap-1.5 rounded-full border border-qq-border bg-white px-2.5 py-0.5 font-mono text-[11px]">
-            {id}
+          <span key={id} className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-qq-border bg-white px-2.5 py-0.5 font-mono text-[11px]">
+            <span className="min-w-0 break-all">{id}</span>
             <button className="text-qq-sub hover:text-qq-red" disabled={busy} onClick={() => mutate('del', [id])}>
               <IconX size={10} />
             </button>
@@ -613,14 +613,14 @@ function PanelEditor({ botId, editor, busy, onClose, onSaved }) {
 
   return (
     <div className="mt-3 rounded-lg border border-qq-blue/40 bg-qq-bg/40 p-3">
-      <div className="mb-2.5 flex items-center justify-between">
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
         <div className="text-[13px] font-medium">{isEdit ? `编辑面板：${editor.panelId}` : '新建指令面板'}</div>
         <button className="text-qq-sub hover:text-qq-text" onClick={onClose}>
           <IconX size={14} />
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 xl:grid-cols-4">
         <Field label="生效场景">
           <select className={inputCls} value={form.scope} disabled={isEdit} onChange={(e) => patch('scope', e.target.value)}>
             {PANEL_SCOPES.map((s) => (
@@ -670,7 +670,7 @@ function PanelEditor({ botId, editor, busy, onClose, onSaved }) {
         ) : (
           <div className="space-y-2">
             {form.items.map((it, i) => (
-              <div key={i} className="grid grid-cols-2 gap-2.5 rounded-lg border border-qq-border bg-white p-2.5 md:grid-cols-6">
+              <div key={i} className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 rounded-lg border border-qq-border bg-white p-2.5 xl:grid-cols-6">
                 <Field label="名称" hint="command 时点击填入输入框">
                   <input className={inputCls} value={it.name} onChange={(e) => patchItem(i, 'name', e.target.value)} placeholder="如 查询天气" />
                 </Field>

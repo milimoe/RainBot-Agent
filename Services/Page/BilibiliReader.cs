@@ -7,6 +7,8 @@ namespace RainBot.Services.Page;
 
 public sealed partial class BilibiliReader(BilibiliCookieProvider? cookies = null) : ISiteReader
 {
+    private readonly SemaphoreSlim _requests = new(1, 1);
+    private DateTimeOffset _nextRequest;
     public static bool IsBilibiliHost(string host) => host.TrimEnd('.').Equals("bilibili.com", StringComparison.OrdinalIgnoreCase)
         || host.TrimEnd('.').EndsWith(".bilibili.com", StringComparison.OrdinalIgnoreCase);
     public static bool IsShortLink(Uri url) => url.Host.TrimEnd('.').Equals("b23.tv", StringComparison.OrdinalIgnoreCase);
@@ -21,6 +23,26 @@ public sealed partial class BilibiliReader(BilibiliCookieProvider? cookies = nul
 
     public async Task<PageResult> ReadAsync(Uri url, PageReaderHttp http, int maxBytes, CancellationToken cancellationToken)
     {
+        await _requests.WaitAsync(cancellationToken);
+        try
+        {
+            if (cookies?.IsCoolingDown == true) return CoolingDown(url);
+            TimeSpan wait = _nextRequest - DateTimeOffset.UtcNow;
+            if (wait > TimeSpan.Zero) await Task.Delay(wait, cancellationToken);
+            _nextRequest = DateTimeOffset.UtcNow.AddMilliseconds(500);
+            return await ReadCoreAsync(url, http, maxBytes, cancellationToken);
+        }
+        catch (PageHttpException ex) when (ex.Status == HttpStatusCode.PreconditionFailed)
+        {
+            cookies?.MarkRisk();
+            return Risk(url);
+        }
+        finally { _requests.Release(); }
+    }
+
+    private async Task<PageResult> ReadCoreAsync(Uri url, PageReaderHttp http, int maxBytes, CancellationToken cancellationToken)
+    {
+        if (cookies?.IsCoolingDown == true) return CoolingDown(url);
         string? bvid = TryGetBvid(url);
         if (bvid == null)
         {
@@ -32,24 +54,36 @@ public sealed partial class BilibiliReader(BilibiliCookieProvider? cookies = nul
         Uri page = VideoUrl(bvid);
         try
         {
-            return Read(page, (await http.ReadAsync(api, maxBytes, cancellationToken, json: true)).Content);
+            PageResult result = Read(page, (await http.ReadAsync(api, maxBytes, cancellationToken, json: true)).Content);
+            if (result.Status == "risk") cookies?.MarkRisk();
+            return result;
         }
         catch (PageHttpException exception) when (exception.Status == HttpStatusCode.PreconditionFailed)
         {
             // 412 = 风控拦截；缓存 buvid 可能已失效，重新领取后重试一次，仍被拦则转入 risk 兜底。
+            if (cookies != null && !await cookies.CanRenewAnonymousAsync(cancellationToken))
+            {
+                cookies.MarkRisk();
+                return Risk(page);
+            }
             cookies?.Invalidate();
+            await Task.Delay(250, cancellationToken);
             try
             {
-                return Read(page, (await http.ReadAsync(api, maxBytes, cancellationToken, json: true)).Content);
+                PageResult result = Read(page, (await http.ReadAsync(api, maxBytes, cancellationToken, json: true)).Content);
+                if (result.Status == "risk") cookies?.MarkRisk();
+                return result;
             }
             catch (PageHttpException retry) when (retry.Status == HttpStatusCode.PreconditionFailed)
             {
+                cookies?.MarkRisk();
                 return Risk(page);
             }
         }
     }
 
     private static PageResult Risk(Uri url) => new("risk", url.AbsoluteUri, "bilibili", Error: "B 站风控拦截（HTTP 412），未取得视频信息。");
+    private static PageResult CoolingDown(Uri url) => new("risk", url.AbsoluteUri, "bilibili", Error: "B 站请求处于风控冷却期，请稍后重试。");
 
     public PageResult Read(Uri url, string content)
     {

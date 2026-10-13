@@ -18,7 +18,9 @@ public sealed class PageService(PageReaderHttp http, SiteReaderRegistry readers,
         catch (InvalidOperationException ex) { return new("blocked", "", Error: ex.Message); }
         if (BilibiliReader.TryGetBvid(url) is { } bvid) url = BilibiliReader.VideoUrl(bvid);
         if (GitHubLink.Parse(url.AbsoluteUri) is { } github) url = github.Url;
-        if (_cache.TryGetValue(url.AbsoluteUri, out PageResult? cached)) return cached!;
+        string identity = BilibiliReader.IsBilibiliHost(url.Host) || BilibiliReader.IsShortLink(url) ? http.BilibiliCacheIdentity : "";
+        string cacheKey = identity + url.AbsoluteUri;
+        if (_cache.TryGetValue(cacheKey, out PageResult? cached)) return cached!;
         using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(config.Config.Page.RequestTimeoutSeconds, 1, 60)));
         bool entered = false;
@@ -40,14 +42,14 @@ public sealed class PageService(PageReaderHttp http, SiteReaderRegistry readers,
             result = new("unavailable", url.AbsoluteUri, Error: ex is InvalidOperationException ? ex.Message : "无法读取页面，不能据此推断内容。");
         }
         finally { if (entered) _concurrency.Release(); }
-        _cache.Set(url.AbsoluteUri, result, new MemoryCacheEntryOptions
+        _cache.Set(cacheKey, result, new MemoryCacheEntryOptions
         {
             Size = 1,
             AbsoluteExpirationRelativeToNow = result.Status == "ok"
                 ? TimeSpan.FromMinutes(Math.Clamp(config.Config.Page.CacheMinutes, 1, 1440)) : TimeSpan.FromSeconds(60)
         });
         if (result.Status == "ok" && result.Url != url.AbsoluteUri)
-            _cache.Set(result.Url, result, new MemoryCacheEntryOptions { Size = 1,
+            _cache.Set(identity + result.Url, result, new MemoryCacheEntryOptions { Size = 1,
                 AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(Math.Clamp(config.Config.Page.CacheMinutes, 1, 1440)) });
         return result;
     }

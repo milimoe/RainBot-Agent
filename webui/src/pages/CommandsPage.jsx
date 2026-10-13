@@ -62,6 +62,7 @@ const COMMAND_GROUPS = [
         cmd: '/context',
         desc: '查看当前会话最近一次模型请求的窗口概览：估算 tokens、治理水位占用、历史条数及 A–F 区块大小。仅管理员可用，不调用模型。',
       },
+      { cmd: '/compact', desc: '管理员强制压缩当前群上下文，保留摘要和最近消息；失败时保留原历史。' },
       {
         cmd: '/context full [页码]',
         desc: '分页查看最近请求的脱敏上下文全文，包括工具调用和结果；默认第 1 页。图片只显示占位。仅管理员可用。',
@@ -76,7 +77,7 @@ const COMMAND_GROUPS = [
       {
         cmd: '/admin forget 短id',
         alias: '/admin 清除 短id',
-        desc: '清除指定群友的画像（短 id = openid 前几位）',
+        desc: '清除指定群友的画像（使用上下文中的 u 开头短标识）',
       },
       {
         cmd: '/admin sayno list',

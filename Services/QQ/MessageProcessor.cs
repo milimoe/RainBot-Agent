@@ -32,6 +32,7 @@ public class MessageProcessor
     private readonly ILogger<MessageProcessor> _logger;
     private readonly WebUiBridge? _webUi;
     private readonly MessagePreprocessorPipeline? _preprocessors;
+    private readonly Services.Bots.BotInstanceStore? _bots;
 
     public MessageProcessor(
         GroupStateManager states,
@@ -47,7 +48,7 @@ public class MessageProcessor
         RuntimeConfig config,
         ILogger<MessageProcessor> logger,
         WebUiBridge? webUi = null,
-        MessagePreprocessorPipeline? preprocessors = null)
+        MessagePreprocessorPipeline? preprocessors = null, Services.Bots.BotInstanceStore? bots = null)
     {
         _states = states;
         _inputFilter = inputFilter;
@@ -63,6 +64,7 @@ public class MessageProcessor
         _logger = logger;
         _webUi = webUi;
         _preprocessors = preprocessors;
+        _bots = bots;
     }
 
     public Task ProcessAsync(IncomingMessage message, CancellationToken ct)
@@ -138,6 +140,7 @@ public class MessageProcessor
         {
             return false;
         }
+        if (_bots?.Get(message.BotId.Length > 0 ? message.BotId : Services.Bots.BotKeys.GetBotId(message.GroupOpenId))?.Paused == true) return false;
 
         // 4. 指令处理（无需 @，群里直接发送指令即可；@ 发送同样有效，管理员指令按权限放行）
         {
@@ -196,6 +199,7 @@ public class MessageProcessor
 
     private async Task TriggerAsync(IReadOnlyList<IncomingMessage> candidates, CancellationToken ct)
     {
+        long contextVersion = _states.GetOrCreate(candidates[0].GroupOpenId).ContextVersion;
         DateTimeOffset now = DateTimeOffset.UtcNow;
         // 副作用处理期间也可能耗时，再次检查时效；优先回应本批最后一条 @。
         List<IncomingMessage> fresh = candidates.Where(m => IsFresh(m, now)).ToList();
@@ -231,9 +235,8 @@ public class MessageProcessor
         foreach (IncomingMessage other in fresh.Where(m => !ReferenceEquals(m, message)))
         {
             var (images, quote) = ResolveContext(other, now);
-            imageUrls.AddRange(images);
-            if (!string.IsNullOrWhiteSpace(quote))
-                quotedText = string.IsNullOrWhiteSpace(quotedText) ? quote : quotedText + "\n" + quote;
+            // 多人的附件不能作为触发者附件送入视觉模型，避免图片归属串人。
+            // 其他人的引用保留在各自消息中，不能拼入当前触发者的引用。
         }
         imageUrls = imageUrls.Distinct(StringComparer.Ordinal).ToList();
 
@@ -249,6 +252,7 @@ public class MessageProcessor
             : "";
         TriggerContext ctx = new()
         {
+            ContextVersion = contextVersion,
             BotId = message.BotId,
             GroupOpenId = message.GroupOpenId,
             CreatedAt = message.ReceivedAt,
@@ -262,7 +266,7 @@ public class MessageProcessor
             CurrentContent = message.DisplayContent,
             SenderIsAdmin = message.IsAdmin,
             PendingMessages = fresh.Count > 1
-                ? fresh.Select(m => new PendingSpeaker(m.SenderOpenId, m.Username, m.DisplayContent)).ToList()
+                ? fresh.Select(m => new PendingSpeaker(m.SenderOpenId, m.Username, m.DisplayContent, ResolveContext(m, now).QuotedText)).ToList()
                 : [],
             RecalledProfile = recalled,
             PreprocessedResults = preprocessed,
@@ -294,7 +298,7 @@ public class MessageProcessor
             HistoryEntry? entry = _historyStore.FindByMsgIdx(message.GroupOpenId, message.RefMsgIdx);
             if (entry != null)
             {
-                quoted = entry.Content;
+                quoted = $"{(entry.IsBot ? "机器人" : UserIdentityResolver.ShortId(entry.UserOpenId))} 原文：{entry.Content}";
                 images.AddRange(entry.ImageUrls);
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {

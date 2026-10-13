@@ -4,26 +4,39 @@ using RainBot.Services.Config;
 namespace RainBot.Services.Page;
 
 /// <summary>
-/// B 站请求 Cookie：api.bilibili.com 对无 buvid 设备 Cookie 的请求会被风控直接返回 412。
-/// 优先使用 Rain.Page.BilibiliCookies 手动配置（可附 SESSDATA）；留空时调用 spi 接口
-/// （免登录）领取 buvid3/buvid4 并在进程内缓存 24 小时，遇到 412 可 Invalidate 后重新领取。
+/// B 站请求 Cookie：手动配置优先，其次扫码凭据；缺失的设备 Cookie 从 spi 补齐。
+/// 匿名设备身份缓存 24 小时；有账号或手动身份时不因 412 自动轮换。
 /// </summary>
-public sealed class BilibiliCookieProvider(IHttpClientFactory clients, RuntimeConfig config, ILogger<BilibiliCookieProvider> logger)
+public sealed class BilibiliCookieProvider(IHttpClientFactory clients, RuntimeConfig config, ILogger<BilibiliCookieProvider> logger,
+    BilibiliLoginService? login = null)
 {
     private static readonly Uri SpiUrl = new("https://api.bilibili.com/x/frontend/finger/spi");
     private readonly SemaphoreSlim _lock = new(1, 1);
     private string? _cookie;
     private DateTimeOffset _expires;
+    private long _riskUntil;
+    private string _riskIdentity = "";
+    public string CacheIdentity => (login?.Version ?? 0) + ":" + Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(config.Config.Page.BilibiliCookies)));
+    public bool IsCoolingDown => _riskIdentity == CacheIdentity && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() < Interlocked.Read(ref _riskUntil);
+    public void MarkRisk()
+    {
+        _riskIdentity = CacheIdentity;
+        Interlocked.Exchange(ref _riskUntil, DateTimeOffset.UtcNow.AddSeconds(60).ToUnixTimeMilliseconds());
+    }
 
     public async Task<string> GetAsync(CancellationToken cancellationToken)
     {
         string manual = config.Config.Page.BilibiliCookies.Trim();
-        if (manual.Length > 0) return manual;
-        if (_cookie is { } cached && DateTimeOffset.UtcNow < _expires) return cached;
+        string account = manual.Length > 0 ? manual : login != null ? await login.GetCookieAsync(cancellationToken) : "";
+        var supplied = Parse(account);
+        if (supplied.ContainsKey("buvid3") && supplied.ContainsKey("buvid4")) return Merge(account, "");
+        // 已有设备身份不主动轮换；缺失的设备键从匿名会话补齐。
+        if (_cookie is { } cached && DateTimeOffset.UtcNow < _expires) return Merge(account, cached);
         await _lock.WaitAsync(cancellationToken);
         try
         {
-            if (_cookie is { } fresh && DateTimeOffset.UtcNow < _expires) return fresh;
+            if (_cookie is { } fresh && DateTimeOffset.UtcNow < _expires) return Merge(account, fresh);
             string cookie = await FetchAsync(cancellationToken);
             if (cookie.Length > 0)
             {
@@ -31,7 +44,7 @@ public sealed class BilibiliCookieProvider(IHttpClientFactory clients, RuntimeCo
                 _expires = DateTimeOffset.UtcNow.AddHours(24);
                 logger.LogInformation("已从 B 站 spi 接口领取 buvid Cookie。");
             }
-            return cookie;
+            return Merge(account, cookie);
         }
         finally { _lock.Release(); }
     }
@@ -41,6 +54,34 @@ public sealed class BilibiliCookieProvider(IHttpClientFactory clients, RuntimeCo
     {
         _cookie = null;
         _expires = DateTimeOffset.MinValue;
+    }
+
+    internal static Dictionary<string, string> Parse(string cookie)
+    {
+        Dictionary<string, string> values = new(StringComparer.Ordinal);
+        foreach (string part in cookie.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            int separator = part.IndexOf('=');
+            if (separator <= 0) continue;
+            string key = part[..separator].Trim(), value = part[(separator + 1)..].Trim();
+            if (key.All(c => char.IsAsciiLetterOrDigit(c) || c == '_') && value.Length > 0
+                && value.All(c => c >= 0x21 && c <= 0x7e && c != ';')) values[key] = value;
+        }
+        return values;
+    }
+    private static string Merge(string supplied, string anonymous)
+    {
+        var values = Parse(supplied);
+        foreach (var pair in Parse(anonymous)) values.TryAdd(pair.Key, pair.Value);
+        return string.Join("; ", values.Select(p => $"{p.Key}={p.Value}"));
+    }
+    internal static string DeviceOnly(string cookie) => string.Join("; ", Parse(cookie)
+        .Where(p => p.Key is "buvid3" or "buvid4" or "buvid_fp").Select(p => $"{p.Key}={p.Value}"));
+    public async Task<bool> CanRenewAnonymousAsync(CancellationToken ct)
+    {
+        string account = config.Config.Page.BilibiliCookies.Trim();
+        if (account.Length == 0 && login != null) account = await login.GetCookieAsync(ct);
+        return account.Length == 0;
     }
 
     private async Task<string> FetchAsync(CancellationToken cancellationToken)

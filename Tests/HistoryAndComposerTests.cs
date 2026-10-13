@@ -125,9 +125,9 @@ public class HistoryAndComposerTests
 
         string text = await anchors.GetAnchorsTextAsync(Group, 5);
         Assert.Contains("装机", text);
-        Assert.Contains("user_alp", text);   // ShortId 取 openid 前 8 位
+        Assert.Contains(UserIdentityResolver.ShortId("user_alpha_0123456789"), text);
         Assert.DoesNotContain("家庭住址", text); // 敏感字段绝不进锚点
-        Assert.Contains("user_bet", text);
+        Assert.Contains(UserIdentityResolver.ShortId("user_beta_0123456789"), text);
     }
 }
 

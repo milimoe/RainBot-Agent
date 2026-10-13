@@ -15,6 +15,7 @@ function emptyForm() {
     name: '',
     platform: 'QqOfficial',
     enabled: true,
+    paused: false,
     personaName: '',
     personaPath: '',
     admins: [],
@@ -37,6 +38,7 @@ function toForm(b) {
     name: b.name || '',
     platform: b.platform || 'QqOfficial',
     enabled: b.enabled !== false,
+    paused: b.paused === true,
     personaName: b.personaName === 'default' ? '' : b.personaName || '',
     personaPath: b.personaPath || '',
     admins: Array.isArray(b.admins) ? b.admins : [],
@@ -52,7 +54,7 @@ function toForm(b) {
 
 function Field({ label, hint, children, wide = false }) {
   return (
-    <label className={`block ${wide ? 'col-span-2' : ''}`}>
+    <label className={`block min-w-0 ${wide ? 'sm:col-span-2' : ''}`}>
       <div className="mb-1 text-xs font-medium text-qq-sub">{label}</div>
       {children}
       {hint ? <div className="mt-1 text-[11px] leading-snug text-qq-sub">{hint}</div> : null}
@@ -90,7 +92,7 @@ function Channel({ title, checked, onToggle, children }) {
         <span className="text-[13px] font-medium">{title}</span>
         <Toggle checked={checked} onChange={onToggle} />
       </div>
-      {checked ? <div className="grid grid-cols-2 gap-3">{children}</div> : null}
+      {checked ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{children}</div> : null}
     </div>
   );
 }
@@ -122,8 +124,8 @@ function BotAdminsCard({ form, saved }) {
           <span className="text-xs text-qq-sub">暂无管理员（与群管理员无关，本实例管理员可用全部 /admin 指令）</span>
         )}
         {form.admins.map((id) => (
-          <span key={id} className="flex items-center gap-1.5 rounded-full bg-qq-bg px-2.5 py-1 font-mono text-xs">
-            {id}
+          <span key={id} className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full bg-qq-bg px-2.5 py-1 font-mono text-xs">
+            <span className="min-w-0 break-all">{id}</span>
             <button className="text-qq-sub hover:text-qq-red" onClick={() => remove(id)}>
               <IconX size={11} />
             </button>
@@ -136,7 +138,7 @@ function BotAdminsCard({ form, saved }) {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())}
           placeholder={isOneBot ? '粘贴管理员 QQ 号…' : '粘贴群友 OpenID…'}
-          className="w-full rounded-md border border-qq-border px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-qq-blue"
+          className="min-w-0 flex-1 rounded-md border border-qq-border px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-qq-blue"
         />
         <button
           className="flex shrink-0 items-center gap-1 rounded-md bg-qq-blue px-3 py-1.5 text-xs text-white hover:bg-qq-blue-deep disabled:opacity-40"
@@ -252,9 +254,9 @@ export default function BotsPage() {
   const endpoints = data.bots?.find((b) => b.id === form.id)?.endpoints;
 
   return (
-    <div className="flex h-full min-w-0 flex-1">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
       {/* 实例列表 */}
-      <div className="qq-scroll w-[280px] shrink-0 overflow-y-auto border-r border-qq-border bg-qq-panel py-4">
+      <div className="qq-scroll max-h-44 w-full shrink-0 overflow-y-auto border-b border-qq-border bg-qq-panel py-3 lg:max-h-none lg:w-[280px] lg:border-b-0 lg:border-r lg:py-4">
         <div className="mb-3 flex items-center justify-between px-4">
           <div className="text-xs font-medium text-qq-sub">机器人实例</div>
           <button
@@ -286,7 +288,7 @@ export default function BotsPage() {
                     <IconRobot size={16} />
                   </span>
                   <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{b.name || b.id}</span>
-                  {b.enabled ? (
+                  {b.paused ? <Badge tone="gray">已暂停</Badge> : b.enabled ? (
                     <Badge tone={st?.connected ? 'green' : 'gray'}>{st?.connected ? '已连接' : '未连接'}</Badge>
                   ) : (
                     <Badge tone="gray">已禁用</Badge>
@@ -310,9 +312,9 @@ export default function BotsPage() {
       </div>
 
       {/* 编辑区 */}
-      <div className="qq-scroll min-w-0 flex-1 overflow-y-auto px-4 py-5 md:px-8">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
+      <div className="qq-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4 lg:px-8 lg:py-5">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1 break-words">
             <div className="text-[15px] font-medium">
               {isNew ? '新增机器人实例' : form.id ? `编辑：${form.name || form.id}` : '机器人管理'}
             </div>
@@ -333,13 +335,13 @@ export default function BotsPage() {
 
         {!form.id && !isNew ? (
           <div className="rounded-xl border border-qq-border bg-white p-6 text-[13px] text-qq-sub">
-            选择左侧实例进行编辑，或点「新增」注册一个机器人。
+            选择实例进行编辑，或点「新增」注册一个机器人。
           </div>
         ) : (
           <div className="space-y-4">
             <div className="rounded-xl border border-qq-border bg-white p-4">
               <div className="mb-3 text-[13px] font-medium">基础信息</div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="实例 Id" hint="字母/数字/-/_，作为存储前缀，创建后不建议改">
                   <input
                     className={inputCls}
@@ -378,6 +380,16 @@ export default function BotsPage() {
                     <Toggle checked={form.enabled} onChange={(v) => saved('enabled', v)} />
                   </div>
                 </Field>
+                <Field label="暂停" hint="保持连接并记录消息，暂停回复、随机互动和主动发言。">
+                  <div className="py-1"><Toggle checked={form.paused} onChange={async (paused) => {
+                    if (isNew) { saved('paused', paused); return; }
+                    try {
+                      await api(`/api/webui/bots/${encodeURIComponent(form.id)}/paused`, { method: 'POST', body: { paused } });
+                      saved('paused', paused);
+                      await load();
+                    } catch (e) { toast(e.message, 'error'); }
+                  }} /></div>
+                </Field>
               </div>
             </div>
 
@@ -387,7 +399,7 @@ export default function BotsPage() {
               <>
                 <div className="rounded-xl border border-qq-border bg-white p-4">
                   <div className="mb-3 text-[13px] font-medium">OneBot11 身份</div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <Field label="机器人 QQ 号" hint="留空则收到第一条消息时从 self_id 自动学习">
                       <input
                         className={inputCls}
@@ -479,7 +491,7 @@ export default function BotsPage() {
             ) : (
               <div className="rounded-xl border border-qq-border bg-white p-4">
                 <div className="mb-3 text-[13px] font-medium">QQ 官方凭据</div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Field label="AppID">
                     <input
                       className={inputCls}
@@ -538,7 +550,7 @@ export default function BotsPage() {
             ) : null}
 
             {!isNew ? (
-              <div className="flex items-center justify-between rounded-xl border border-qq-border bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-qq-border bg-white p-4">
                 <div className="text-[12px] text-qq-sub">
                   删除后该实例停止收发；历史与画像仍保留在库中。
                 </div>

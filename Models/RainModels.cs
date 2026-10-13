@@ -107,6 +107,7 @@ public class IncomingMessage
 /// </summary>
 public class TriggerContext
 {
+    public long? ContextVersion { get; init; }
     /// <summary>触发该工作流的机器人实例 Id（决定回复回程）</summary>
     public string BotId { get; init; } = "";
 
@@ -153,4 +154,4 @@ public class TriggerContext
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
-public sealed record PendingSpeaker(string OpenId, string? Nickname, string Content);
+public sealed record PendingSpeaker(string OpenId, string? Nickname, string Content, string QuotedContent = "");

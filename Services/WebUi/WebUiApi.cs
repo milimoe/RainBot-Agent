@@ -7,6 +7,7 @@ using RainBot.Services.Bots;
 using RainBot.Services.Config;
 using RainBot.Services.Fun;
 using RainBot.Services.OneBot;
+using RainBot.Services.Page;
 using RainBot.Services.Persona;
 using RainBot.Services.Profile;
 using RainBot.Services.QQ;
@@ -21,11 +22,34 @@ namespace RainBot.Services.WebUi;
 /// </summary>
 public static class WebUiApi
 {
+    private static async Task<IResult> BilibiliResultAsync<T>(Func<Task<T>> action)
+    {
+        try { return Results.Json(await action()); }
+        catch (BilibiliLoginException ex)
+        { return Results.Json(new { error = ex.Message, code = ex.Code, upstreamCode = ex.UpstreamCode }, statusCode: 502); }
+        catch (HttpRequestException ex)
+        {
+            string error = ex.HttpRequestError switch
+            {
+                HttpRequestError.NameResolutionError => "服务器无法解析 B 站登录域名，请检查服务器 DNS。",
+                HttpRequestError.ConnectionError => "服务器无法连接 B 站登录接口，请检查出站网络。",
+                HttpRequestError.SecureConnectionError => "服务器与 B 站建立 HTTPS 连接失败，请检查系统时间和证书。",
+                _ => "服务器请求 B 站登录接口失败，请查看服务端登录网络诊断日志。"
+            };
+            return Results.Json(new { error, code = "network_error", networkError = ex.HttpRequestError.ToString() }, statusCode: 502);
+        }
+        catch (OperationCanceledException) { return Results.Json(new { error = "登录请求超时或已取消。" }, statusCode: 408); }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or IOException
+            or System.Security.Cryptography.CryptographicException or KeyNotFoundException or FormatException)
+        { return Results.Json(new { error = "B 站登录请求失败，请稍后重试；必要时重新生成二维码。" }, statusCode: 502); }
+    }
     public static void MapWebUiEndpoints(this WebApplication app)
     {
         RouteGroupBuilder api = app.MapGroup("/api/webui");
         api.AddEndpointFilter(async (context, next) =>
         {
+            if (context.HttpContext.Request.Path.StartsWithSegments("/api/webui/bilibili"))
+                context.HttpContext.Response.Headers.CacheControl = "no-store";
             WebUiOptions options = context.HttpContext.RequestServices.GetRequiredService<IOptions<WebUiOptions>>().Value;
             if (!options.Enabled)
             {
@@ -46,6 +70,17 @@ public static class WebUiApi
         });
 
         // ---------- 状态 ----------
+        api.MapGet("/bilibili/login", (BilibiliLoginService login, bool? verify, CancellationToken ct) =>
+            BilibiliResultAsync(async () => await login.StatusAsync(verify == true, ct)));
+        api.MapPost("/bilibili/login/qr", (BilibiliLoginService login, CancellationToken ct) =>
+            BilibiliResultAsync(async () => await login.StartAsync(ct)));
+        api.MapPost("/bilibili/login/qr/{id}/poll", (string id, BilibiliLoginService login, CancellationToken ct) =>
+            BilibiliResultAsync(async () => await login.PollAsync(id, ct)));
+        api.MapDelete("/bilibili/login/qr/{id}", (string id, BilibiliLoginService login, CancellationToken ct) =>
+            BilibiliResultAsync(async () => { await login.CancelAsync(id, ct); return new { ok = true }; }));
+        api.MapDelete("/bilibili/login", (BilibiliLoginService login, CancellationToken ct) =>
+            BilibiliResultAsync(async () => { await login.ClearAsync(ct); return new { ok = true }; }));
+
         api.MapGet("/status", async (BotStatus status, RuntimeConfig config, Database db, MessageQueue queue, WebUiBridge bridge, BotInstanceStore bots, IOptions<WebUiOptions> options) =>
         {
             List<GroupWebStats> stats = await db.GetGroupStatsAsync();
@@ -547,6 +582,7 @@ public static class WebUiApi
                     b.Name,
                     platform = b.Platform.ToString(),
                     b.Enabled,
+                    b.Paused,
                     b.PersonaPath,
                     b.PersonaName,
                     b.Admins,
@@ -606,6 +642,14 @@ public static class WebUiApi
             bool enabled = body?["enabled"]?.GetValue<bool>() ?? true;
             string? error = await store.SetEnabledAsync(id, enabled);
             return error != null ? Results.Json(new { error }, statusCode: 400) : Results.Json(new { ok = true, enabled });
+        });
+
+        api.MapPost("/bots/{id}/paused", async (string id, BotInstanceStore store, HttpRequest request) =>
+        {
+            var body = await ReadBodyAsync(request);
+            bool paused = body?["paused"]?.GetValue<bool>() ?? true;
+            string? error = await store.SetPausedAsync(id, paused);
+            return error != null ? Results.Json(new { error }, statusCode: 400) : Results.Json(new { ok = true, paused });
         });
 
         // ---------- QQ 官方：自定义菜单 + 指令面板（按实例凭据调用官方 API） ----------
@@ -742,6 +786,7 @@ public static class WebUiApi
                 ? BotPlatform.OneBot11
                 : BotPlatform.QqOfficial,
             Enabled = obj["enabled"]?.GetValue<bool>() ?? true,
+            Paused = obj["paused"]?.GetValue<bool>() ?? false,
             PersonaPath = obj["personaPath"]?.GetValue<string>() ?? "",
             PersonaName = obj["personaName"]?.GetValue<string>() ?? "",
             Admins = obj["admins"] is JsonArray admins

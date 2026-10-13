@@ -126,7 +126,7 @@ public class UserIdentityTests
         {
             GroupOpenId = Group, Type = TriggerType.Passive, Reason = "问候", SenderOpenId = Alice
         });
-        Assert.Contains("小明(u12345678)", result.Messages[2].Content);
+        Assert.Contains($"小明({UserIdentityResolver.ShortId(Alice)})", result.Messages[2].Content);
         Assert.DoesNotContain(Alice, result.Messages[2].Content);
         Assert.Contains(Alice, result.Messages[3].Content);
         Assert.DoesNotContain("小明", result.Messages[1].Content);

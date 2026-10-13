@@ -187,7 +187,7 @@ public static class OneBotMessage
             else if (seg.Type == TypeAt)
             {
                 string qq = GetString(seg, "qq");
-                sb.Append(qq.Equals("all", StringComparison.OrdinalIgnoreCase) ? "@全体成员" : $"@{qq}");
+                sb.Append(qq.Equals("all", StringComparison.OrdinalIgnoreCase) ? "@全体成员" : $"@{Profile.UserIdentityResolver.ShortId(qq)}");
             }
         }
         return sb.ToString().Trim();

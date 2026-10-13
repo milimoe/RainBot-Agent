@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using RainBot.Models;
+using RainBot.Services.Profile;
 
 namespace RainBot.Services.QQ;
 
@@ -14,7 +15,7 @@ public static class MentionRenderer
 
     /// <summary>
     /// 渲染 @ 标签：命中 mentions 的用其用户名；@ 机器人自己渲染为「@你」；
-    /// 不在 mentions 里的（历史格式/异常数据）保留「@用户」占位。
+    /// 昵称附带稳定标识；缺少 mentions 时仍保留被提及者标识。
     /// </summary>
     public static string RenderAtTags(string content, List<Mention>? mentions)
     {
@@ -40,13 +41,14 @@ public static class MentionRenderer
             string openId = match.Groups[1].Value.Trim();
             if (!lookup.TryGetValue(openId, out Mention? mention))
             {
-                return "@用户"; // 未在 mentions 中（历史格式或异常数据）：沿用原有占位，不引入不确定的名字
+                return "@" + UserIdentityResolver.ShortId(openId);
             }
             if (mention.IsYou)
             {
                 return "@你";
             }
-            return string.IsNullOrWhiteSpace(mention.Username) ? "@用户" : "@" + mention.Username.Trim();
+            string identity = UserIdentityResolver.ShortId(openId);
+            return string.IsNullOrWhiteSpace(mention.Username) ? "@" + identity : $"@{mention.Username.Trim()}({identity})";
         });
         // 官方推送的 content 常在 @ 标签前后留空格（如 " <@!xxx> 帮我看看"），渲染后去掉首尾空白
         return rendered.Trim();

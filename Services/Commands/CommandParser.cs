@@ -16,7 +16,7 @@ namespace RainBot.Services.Commands;
 /// - 管理员指令：/admin list | set | mute | unmute | stats | reasoning | admin add/remove | forget | help
 /// - /status：状态查看（管理员）
 /// </summary>
-public class CommandParser(RuntimeConfig config, GroupStateManager states, Database db, SayNoWordsService sayNoWords, OsmImageCatalog osmCatalog, ReasoningRecorder reasoningRecorder, BotInstanceStore botStore, ContextRecorder contextRecorder, ILogger<CommandParser> logger)
+public class CommandParser(RuntimeConfig config, GroupStateManager states, Database db, SayNoWordsService sayNoWords, OsmImageCatalog osmCatalog, ReasoningRecorder reasoningRecorder, BotInstanceStore botStore, ContextRecorder contextRecorder, ILogger<CommandParser> logger, ContextCompactor compactor)
 {
     private readonly RuntimeConfig _config = config;
     private readonly GroupStateManager _states = states;
@@ -60,6 +60,7 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
         {
             "忘掉我" or "forgetme" => new ParsedCommand(CommandKind.ForgetMe),
             "status" => new ParsedCommand(CommandKind.Status),
+            "compact" => new ParsedCommand(CommandKind.Compact),
             "context" => new ParsedCommand(CommandKind.Context, args.FirstOrDefault()?.ToLowerInvariant(), args.Length > 1 ? string.Join(' ', args[1..]) : null),
             "fun" or "娱乐" => new ParsedCommand(CommandKind.FunStatus),
             "admin" => ParseAdmin(args),
@@ -98,6 +99,9 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
         botId = string.IsNullOrWhiteSpace(botId) ? Database.LegacyBotId : botId;
         switch (command.Kind)
         {
+            case CommandKind.Compact:
+                if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
+                return await compactor.CompactAsync(groupOpenId);
             case CommandKind.ForgetMe:
                 await _db.DeleteUserProfileAsync(groupOpenId, senderOpenId);
                 _logger.LogInformation("用户 {User} 已清除自己的画像", senderOpenId);
@@ -117,7 +121,7 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
 
             case CommandKind.AdminHelp:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
-                return "管理员指令：\n/admin list 查看参数\n/admin set 参数 值\n/admin mute [分钟] / unmute\n/admin stats\n/admin reasoning 查看最后的思维链\n/context 查看最近请求的上下文窗口\n/context full [页码] 分页查看全文\n/admin admin add|remove id（本实例管理员，QQ 官方填 openid / OneBot 填 QQ 号）\n/admin forget 短id\n/status";
+                return "管理员指令：\n/admin list 查看参数\n/admin set 参数 值\n/admin mute [分钟] / unmute\n/admin stats\n/admin reasoning 查看最后的思维链\n/context 查看最近请求的上下文窗口\n/context full [页码] 分页查看全文\n/compact 强制压缩当前群上下文\n/admin admin add|remove id（本实例管理员，QQ 官方填 openid / OneBot 填 QQ 号）\n/admin forget 短id\n/status";
 
             case CommandKind.AdminList:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
@@ -134,7 +138,9 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
                 {
                     return error;
                 }
-                string ok = $"参数 {command.Key} 已更新为 {command.Value} ☔";
+                string displayValue = command.Key.Trim().Replace("_", "").Replace("-", "").Replace(" ", "") == "Page.BilibiliCookies"
+                    ? "[已隐藏]" : command.Value;
+                string ok = $"参数 {command.Key} 已更新为 {displayValue} ☔";
                 // 思维显示依赖调试模式：单开不生效，明确提示，避免"开了没反应"
                 if (_config.Config.DebugShowReasoning && !_config.Config.DebugMode)
                 {
@@ -188,7 +194,7 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
             case CommandKind.AdminForget:
                 if (!isAdmin) return "这个指令只有管理员能用哦 🌧️";
                 string target = command.Key?.Trim() ?? "";
-                UserProfile? profile = target.StartsWith("u", StringComparison.OrdinalIgnoreCase) && target.Length <= 12
+                UserProfile? profile = target.StartsWith("u", StringComparison.OrdinalIgnoreCase) && target.Length <= 13
                     ? await _db.FindUserByShortIdAsync(groupOpenId, target)
                     : await _db.GetUserProfileAsync(groupOpenId, target);
                 if (profile == null)
@@ -305,6 +311,7 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
 
 public enum CommandKind
 {
+    Compact,
     ForgetMe,
     Status,
     Context,

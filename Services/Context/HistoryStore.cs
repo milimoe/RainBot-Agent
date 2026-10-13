@@ -68,6 +68,7 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
             list.AddLast(new HistoryEntry
             {
                 UserOpenId = message.SenderOpenId,
+                IsBot = message.IsFromBot,
                 Nickname = message.Username,
                 Content = content,
                 VideoUrls = RainBot.Services.Page.LinkPrefetcher.Extract(message),
@@ -228,6 +229,24 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
     }
 
     /// <summary>蒸馏压缩后：清空历史，仅保留最近 keepCount 条</summary>
+    public int CompactSnapshot(string group, IReadOnlyList<HistoryEntry> snapshot, int keepCount)
+    {
+        var removable = snapshot.Take(Math.Max(0, snapshot.Count - Math.Max(0, keepCount))).ToHashSet();
+        var list = _histories.GetOrAdd(group, _ => []);
+        int removed = 0;
+        lock (list)
+        {
+            for (var node = list.First; node != null;)
+            {
+                var next = node.Next;
+                if (removable.Contains(node.Value)) { list.Remove(node); removed++; }
+                node = next;
+            }
+        }
+        return removed;
+    }
+
+    /// <summary>蒸馏压缩后：清空历史，仅保留最近 keepCount 条</summary>
     public void ClearKeep(string groupOpenId, int keepCount)
     {
         LinkedList<HistoryEntry>? list = _histories.GetOrAdd(groupOpenId, _ => []);
@@ -243,7 +262,8 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
     /// <summary>彻底清空（降级重置重建缓存）</summary>
     public void ClearAll(string groupOpenId)
     {
-        _histories[groupOpenId] = [];
+        var list = _histories.GetOrAdd(groupOpenId, _ => []);
+        lock (list) list.Clear();
     }
 
     /// <summary>历史总条数</summary>

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using RainBot.Models;
 using RainBot.Services.Storage;
 using RainBot.Services.Profile;
+using RainBot.Services.Context;
 
 namespace RainBot.Services.Trigger;
 
@@ -17,12 +18,18 @@ public class GroupStateManager
 
     private readonly UserIdentityResolver _identities;
     private readonly AnchorManager _anchors;
-    public GroupStateManager(Database db, ILogger<GroupStateManager> logger, UserIdentityResolver identities, AnchorManager anchors)
+    private readonly HistoryStore _history;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _contextLocks = new();
+    public SemaphoreSlim ContextLock(string group) => _contextLocks.GetOrAdd(group, _ => new(1, 1));
+    private readonly ContextRecorder? _recorder;
+    public GroupStateManager(Database db, ILogger<GroupStateManager> logger, UserIdentityResolver identities, AnchorManager anchors, HistoryStore history, ContextRecorder? recorder = null)
     {
         _db = db;
         _logger = logger;
         _identities = identities;
         _anchors = anchors;
+        _history = history;
+        _recorder = recorder;
     }
 
     public GroupState GetOrCreate(string groupOpenId) => _states.GetOrAdd(groupOpenId, static id => new GroupState { GroupOpenId = id });
@@ -106,25 +113,34 @@ public class GroupStateManager
         state.Degraded = degraded;
         GroupProfile profile = await GetProfileAsync(groupOpenId);
         profile.Degraded = degraded;
-        if (degraded)
-        {
-            profile.LastReset = "";
-        }
         await _db.UpsertGroupProfileAsync(profile);
     }
 
     /// <summary>降级重置：清空历史与状态，重建上下文缓存</summary>
-    public async Task ResetContextAsync(string groupOpenId)
+    public async Task ResetContextAsync(string groupOpenId, bool acquireLock = true)
     {
-        GroupState state = GetOrCreate(groupOpenId);
-        state.Degraded = false;
-        state.LastResetUtc = DateTimeOffset.UtcNow;
-        state.DensityWindow.Clear();
-        GroupProfile profile = await GetProfileAsync(groupOpenId);
-        profile.Degraded = false;
-        profile.LastReset = DateTimeOffset.UtcNow.ToString("o");
-        await _db.UpsertGroupProfileAsync(profile);
-        _logger.LogInformation("群 {Group} 上下文已彻底重置，准备重建缓存", groupOpenId);
+        var gate = ContextLock(groupOpenId);
+        if (acquireLock) await gate.WaitAsync();
+        try
+        {
+            GroupState state = GetOrCreate(groupOpenId);
+            GroupProfile profile = await GetProfileAsync(groupOpenId);
+            DateTimeOffset resetTime = DateTimeOffset.UtcNow;
+            profile.Degraded = false;
+            profile.Summary = "";
+            profile.LastReset = resetTime.ToString("o");
+            await _db.UpsertGroupProfileAsync(profile);
+            await _db.ClearDistillSummariesAsync(groupOpenId);
+            state.Degraded = false;
+            state.LastResetUtc = resetTime;
+            state.DensityWindow.Clear();
+            _history.ClearAll(groupOpenId);
+            _recorder?.Clear(groupOpenId);
+            Interlocked.Increment(ref state.ContextVersion);
+            _anchors.Invalidate(groupOpenId);
+            _logger.LogInformation("群 {Group} 上下文已彻底重置，准备重建缓存", groupOpenId);
+        }
+        finally { if (acquireLock) gate.Release(); }
     }
 
     public IReadOnlyCollection<GroupState> AllStates() => _states.Values.ToList();
@@ -133,6 +149,7 @@ public class GroupStateManager
 /// <summary>单个群的运行时状态</summary>
 public class GroupState
 {
+    public long ContextVersion;
     public required string GroupOpenId { get; init; }
 
     /// <summary>最后一条群消息时间（静默检测）</summary>

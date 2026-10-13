@@ -55,6 +55,7 @@ public static class TestHost
         services.AddSingleton<HistoryStore>();
         services.AddSingleton<AnchorManager>();
         services.AddSingleton<ProfileRecaller>();
+        services.AddSingleton<ContextCompactor>();
         services.AddSingleton<RainBot.Services.Tools.ToolCallRecorder>();
         services.AddSingleton<ToolRegistry>();
         services.AddSingleton<DeepSeekClient>();

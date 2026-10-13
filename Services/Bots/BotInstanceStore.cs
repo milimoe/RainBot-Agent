@@ -123,6 +123,20 @@ public class BotInstanceStore
         return await UpsertAsync(existing);
     }
 
+    public async Task<string?> SetPausedAsync(string id, bool paused)
+    {
+        await _lock.WaitAsync();
+        try
+        {
+            BotInstance? instance = Get(id);
+            if (instance == null) return $"实例不存在：{id}";
+            instance.Paused = paused;
+            await PersistInstanceAsync(instance);
+            return null;
+        }
+        finally { _lock.Release(); }
+    }
+
     /// <summary>
     /// 记录机器人自身身份（QQ 官方 = 群内 openid；OneBot = 机器人 QQ 号）。
     /// 从事件中自动学习后调用，已存在则不重复写库。
@@ -242,6 +256,7 @@ public class BotInstanceStore
                 BotInstanceConfigDto? dto = JsonSerializer.Deserialize<BotInstanceConfigDto>(row.ConfigJson, JsonOptions);
                 if (dto != null)
                 {
+                    instance.Paused = dto.Paused;
                     instance.PersonaName = dto.PersonaName ?? "";
                     instance.PersonaPath = dto.PersonaPath ?? "";
                     instance.Admins = dto.Admins ?? [];
@@ -293,6 +308,7 @@ public class BotInstanceStore
 
     private static string SerializeConfig(BotInstance instance) => JsonSerializer.Serialize(new BotInstanceConfigDto
     {
+        Paused = instance.Paused,
         PersonaName = instance.PersonaName,
         PersonaPath = instance.PersonaPath,
         Admins = instance.Admins,
@@ -334,6 +350,7 @@ public class BotInstanceStore
 
     private sealed class BotInstanceConfigDto
     {
+        public bool Paused { get; set; }
         public string? PersonaName { get; set; }
         public string? PersonaPath { get; set; }
         public List<string>? Admins { get; set; }

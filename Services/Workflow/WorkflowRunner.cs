@@ -22,6 +22,7 @@ public class WorkflowRunner(
     CacheMonitor cacheMonitor,
     RuntimeConfig config,
     Services.Bots.BotInstanceStore bots,
+    GroupStateManager states,
     ILogger<WorkflowRunner> logger)
 {
     private readonly BlockComposer _blockComposer = blockComposer;
@@ -33,7 +34,6 @@ public class WorkflowRunner(
     private readonly RuntimeConfig _config = config;
     private readonly Services.Bots.BotInstanceStore _bots = bots;
     private readonly ILogger<WorkflowRunner> _logger = logger;
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _workflowLocks = new(StringComparer.Ordinal);
 
     /// <summary>思维显示时思维链的展示字数上限（防单条消息过长，超出截断）</summary>
     private const int MaxReasoningDisplayChars = 1000;
@@ -70,10 +70,12 @@ public class WorkflowRunner(
     /// <returns>是否真正入队发送了消息（无内容可说时静默跳过会返回 false）</returns>
     public async Task<bool> RunAsync(TriggerContext ctx, string? replyMsgId, CancellationToken ct = default)
     {
-        SemaphoreSlim workflowLock = _workflowLocks.GetOrAdd(ctx.GroupOpenId, _ => new SemaphoreSlim(1, 1));
+        SemaphoreSlim workflowLock = states.ContextLock(ctx.GroupOpenId);
         await workflowLock.WaitAsync(ct);
         try
         {
+            if (_bots.Get(ctx.BotId.Length > 0 ? ctx.BotId : Services.Bots.BotKeys.GetBotId(ctx.GroupOpenId))?.Paused == true
+                || ctx.ContextVersion is long version && version != states.GetOrCreate(ctx.GroupOpenId).ContextVersion) return false;
             int maxAge = _config.Config.Trigger.BacklogMaxAgeSeconds;
             if (ctx.Type != TriggerType.Warmup && maxAge > 0 &&
                 DateTimeOffset.UtcNow - ctx.CreatedAt > TimeSpan.FromSeconds(maxAge))
@@ -139,6 +141,7 @@ public class WorkflowRunner(
                 }
                 await _sendQueue.EnqueueAsync(new SendTask
                 {
+                    ContextVersion = states.GetOrCreate(ctx.GroupOpenId).ContextVersion,
                     BotId = ctx.BotId,
                     GroupOpenId = ctx.GroupOpenId,
                     Content = content,

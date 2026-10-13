@@ -27,6 +27,8 @@ public class BotInstance
 
     /// <summary>是否启用（禁用后不启动监听、不发送）</summary>
     public bool Enabled { get; set; } = true;
+    /// <summary>暂停自动处理和发送，保持连接与消息记录。</summary>
+    public bool Paused { get; set; }
 
     /// <summary>人设标识名，留空使用默认模板；优先于旧路径配置。</summary>
     public string PersonaName { get; set; } = "";

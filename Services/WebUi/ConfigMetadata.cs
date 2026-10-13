@@ -42,6 +42,10 @@ public static class ConfigMetadata
         new("PromptPath", "通用", "默认提示词路径", "默认人设的提示词配置 JSON，保存后热重载", "text"),
         new("Profile.DailyUpdateLimit", "画像", "每日画像更新配额", "每群每用户每日更新上限；0 禁止普通对话更新，暖群不受限", "number", 0, 100),
         new("Profile.ActiveWindowHours", "画像", "身份活跃窗口（小时）", "艾特工具仅允许本群最近活跃用户", "number", 1, 8760),
+        new("Profile.AutoRefreshEnabled", "画像", "自动补建与刷新画像", "后台从本人发言整理画像，遵守每日配额；暂停的实例不更新", "bool"),
+        new("Profile.AutoRefreshMinutes", "画像", "画像扫描间隔（分钟）", "每轮每群最多两次模型请求；无新事实时暂缓再次整理", "number", 1, 1440),
+        new("Profile.MinActivityMessages", "画像", "补建画像消息门槛", "达到活跃消息数且至少有三条本人近期发言才整理", "number", 3, 1000),
+        new("Profile.RefreshAfterHours", "画像", "画像刷新间隔（小时）", "最近两天活跃且超过此间隔未更新的画像参加刷新", "number", 1, 8760),
         new("Trigger.BacklogMaxAgeSeconds", "触发", "积压消息最大时效（秒）", "超时消息仅入库统计，不触发回复；0 禁用", "number", 0, 86400),
         // ---------- 触发 ----------
         new("Trigger.PassiveCooldownSeconds", "触发", "被动冷却（秒）", "被动触发后群冷却期，冷却期内 @ 消息不唤醒", "number", 1, 3600),

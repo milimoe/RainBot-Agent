@@ -29,6 +29,7 @@ public class SendQueue : BackgroundService
     private readonly BotStatus _botStatus;
     private readonly WebUiBridge? _webUi;
     private readonly HistoryStore? _history;
+    private readonly BotInstanceStore? _bots;
 
     /// <summary>发送消息序号（防服务器按 msg_seq 去重）</summary>
     private long _msgSeq = 0;
@@ -42,7 +43,7 @@ public class SendQueue : BackgroundService
     /// <summary>退避基数（毫秒）：1.5s → 3s → 6s</summary>
     internal const int RetryBackoffBaseMs = 1500;
 
-    public SendQueue(BotSenderRouter senderRouter, BotSendStats sendStats, RuntimeConfig config, GroupStateManager groupStates, ILogger<SendQueue> logger, BotStatus botStatus, WebUiBridge? webUi = null, HistoryStore? history = null)
+    public SendQueue(BotSenderRouter senderRouter, BotSendStats sendStats, RuntimeConfig config, GroupStateManager groupStates, ILogger<SendQueue> logger, BotStatus botStatus, WebUiBridge? webUi = null, HistoryStore? history = null, BotInstanceStore? bots = null)
     {
         _senderRouter = senderRouter;
         _sendStats = sendStats;
@@ -52,6 +53,7 @@ public class SendQueue : BackgroundService
         _botStatus = botStatus;
         _webUi = webUi;
         _history = history;
+        _bots = bots;
         _channel = Channel.CreateUnbounded<SendTask>();
     }
 
@@ -72,7 +74,11 @@ public class SendQueue : BackgroundService
     }
 
     /// <summary>入队发送任务</summary>
-    public ValueTask EnqueueAsync(SendTask task) => _channel.Writer.WriteAsync(task);
+    public ValueTask EnqueueAsync(SendTask task)
+    {
+        task.ContextVersion ??= _groupStates.GetOrCreate(task.GroupOpenId).ContextVersion;
+        return _channel.Writer.WriteAsync(task);
+    }
 
     /// <summary>窥探待发送任务（仅测试用）</summary>
     internal IReadOnlyList<SendTask> PeekPendingForTest()
@@ -100,7 +106,7 @@ public class SendQueue : BackgroundService
                 switch (outcome)
                 {
                     case SendOutcome.Sent:
-                        if (!task.ExcludeFromContext)
+                        if (!task.ExcludeFromContext && task.ContextVersion == _groupStates.GetOrCreate(task.GroupOpenId).ContextVersion)
                             _history?.AppendBotReply(task.GroupOpenId, task.ContextContent ?? task.Content);
                         // 记录机器人发言时间：供暖群"最后一条消息是自己则不暖群"判定
                         // （含试聊仿真，保证仿真模式下暖群判定行为一致）
@@ -152,6 +158,9 @@ public class SendQueue : BackgroundService
 
     private async Task<SendOutcome> TrySendAsync(SendTask task, CancellationToken ct)
     {
+        if (_bots?.Get(task.BotId.Length > 0 ? task.BotId : BotKeys.GetBotId(task.GroupOpenId))?.Paused == true
+            || task.ContextVersion is long version && version != _groupStates.GetOrCreate(task.GroupOpenId).ContextVersion)
+            return SendOutcome.Failed;
         int maxQpm = _config.Config.Safety.MaxQpmPerGroup;
         DateTimeOffset now = DateTimeOffset.UtcNow;
         List<DateTimeOffset> window = _groupSendWindow.GetOrAdd(task.GroupOpenId, _ => []);
@@ -225,6 +234,7 @@ public class SendQueue : BackgroundService
 /// <summary>发送任务</summary>
 public class SendTask
 {
+    public long? ContextVersion { get; set; }
     /// <summary>目标机器人实例 Id（决定走哪个平台的发送器）</summary>
     public string BotId { get; init; } = "";
 

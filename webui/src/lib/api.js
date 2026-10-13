@@ -19,7 +19,7 @@ export class AuthError extends Error {
   }
 }
 
-export async function api(path, { method = 'GET', body } = {}) {
+export async function api(path, { method = 'GET', body, signal } = {}) {
   const headers = {};
   const token = getToken();
   if (token) headers['X-WebUi-Token'] = token;
@@ -27,6 +27,7 @@ export async function api(path, { method = 'GET', body } = {}) {
 
   const res = await fetch(path, {
     method,
+    signal,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
