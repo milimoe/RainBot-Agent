@@ -221,6 +221,8 @@ public class TriggerConfig
 
     /// <summary>随机插嘴概率（%）：普通群消息（未 @）按此概率触发人设回复，0 = 关闭</summary>
     public int RandomChatProbability { get; set; } = 5;
+    /// <summary>北京时间 09–12、14–18 点暂停概率插嘴，@ 回复不受影响。</summary>
+    public bool RandomChatSkipPeakHours { get; set; }
 
     /// <summary>随机插嘴冷却（秒）：同群两次插嘴的最小间隔，与被动冷却相互独立</summary>
     public int RandomChatCooldownSeconds { get; set; } = 600;
@@ -321,6 +323,8 @@ public class StorageConfig
 /// </summary>
 public class FunConfig
 {
+    /// <summary>以全角句号结尾时反转末尾至多 50 个字符；先于其他随机互动。</summary>
+    public bool EnableReversePeriod { get; set; }
     /// <summary>随机反驳是：消息 ==「是」时概率反驳</summary>
     public bool EnableReplyYes { get; set; } = true;
     public int ReplyYesProbability { get; set; } = 40;

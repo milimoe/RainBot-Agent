@@ -55,6 +55,7 @@ public class PassiveTrigger(RuntimeConfig config, GroupStateManager states, ILog
     /// </summary>
     public bool ShouldRandomChat(IncomingMessage message, DateTimeOffset now, bool sensitiveContent = false)
     {
+        if (_config.Config.Trigger.RandomChatSkipPeakHours && IsPeakHour(now)) return false;
         int probability = _config.Config.Trigger.RandomChatProbability;
         if (probability <= 0 || message.IsAtRobot || message.IsPrivate || sensitiveContent)
         {
@@ -90,6 +91,13 @@ public class PassiveTrigger(RuntimeConfig config, GroupStateManager states, ILog
             return false;
         }
         return true;
+    }
+
+    /// <summary>标记该群已发生随机插嘴（进入插嘴冷却）</summary>
+    internal static bool IsPeakHour(DateTimeOffset now)
+    {
+        int hour = now.ToOffset(TimeSpan.FromHours(8)).Hour;
+        return hour is >= 9 and < 12 or >= 14 and < 18;
     }
 
     /// <summary>标记该群已发生随机插嘴（进入插嘴冷却）</summary>

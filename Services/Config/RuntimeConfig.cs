@@ -206,6 +206,7 @@ public class RuntimeConfig
                 case "Trigger.ActivePerHour": _config.Trigger.ActivePerHour = ParseInt(value, nameof(_config.Trigger.ActivePerHour)); return true;
                 case "Trigger.TopicAliveMinutes": _config.Trigger.TopicAliveMinutes = ParseInt(value, nameof(_config.Trigger.TopicAliveMinutes)); return true;
                 case "Trigger.RandomChatProbability": _config.Trigger.RandomChatProbability = ParseProbability(value, nameof(_config.Trigger.RandomChatProbability)); return true;
+                case "Trigger.RandomChatSkipPeakHours": _config.Trigger.RandomChatSkipPeakHours = ParseBool(value, nameof(_config.Trigger.RandomChatSkipPeakHours)); return true;
                 case "Trigger.RandomChatCooldownSeconds": _config.Trigger.RandomChatCooldownSeconds = ParseInt(value, nameof(_config.Trigger.RandomChatCooldownSeconds)); return true;
                 case "Trigger.SearchCacheMinutes": _config.Trigger.SearchCacheMinutes = ParseInt(value, nameof(_config.Trigger.SearchCacheMinutes)); return true;
                 case "Trigger.AtRecentWindowMinutes": _config.Trigger.AtRecentWindowMinutes = ParseInt(value, nameof(_config.Trigger.AtRecentWindowMinutes)); return true;
@@ -231,6 +232,7 @@ public class RuntimeConfig
                 case "Fun.RepeatDelayMinSeconds": _config.Fun.RepeatDelayMinSeconds = ParseInt(value, nameof(_config.Fun.RepeatDelayMinSeconds)); return true;
                 case "Fun.RepeatDelayMaxSeconds": _config.Fun.RepeatDelayMaxSeconds = ParseInt(value, nameof(_config.Fun.RepeatDelayMaxSeconds)); return true;
                 case "Fun.EnableOsm": _config.Fun.EnableOsm = ParseBool(value, nameof(_config.Fun.EnableOsm)); return true;
+                case "Fun.EnableReversePeriod": _config.Fun.EnableReversePeriod = ParseBool(value, nameof(_config.Fun.EnableReversePeriod)); return true;
                 case "Fun.OsmProbability": _config.Fun.OsmProbability = ParseInt(value, nameof(_config.Fun.OsmProbability)); return true;
                 case "Fun.EnableReverseAt": _config.Fun.EnableReverseAt = ParseBool(value, nameof(_config.Fun.EnableReverseAt)); return true;
                 case "Fun.ReverseAtProbability": _config.Fun.ReverseAtProbability = ParseInt(value, nameof(_config.Fun.ReverseAtProbability)); return true;
@@ -354,7 +356,7 @@ public class RuntimeConfig
         "Llm.MaxToolRounds", "Llm.ToolRoundMaxTokens", "Llm.MaxOutputLines", "Llm.MaxOutputChars", "Llm.EnableVision",
         "Trigger.PassiveCooldownSeconds", "Trigger.ImageLookbackSeconds", "Trigger.DensityWindowMinutes", "Trigger.DensityThreshold",
         "Trigger.SilenceMinutes", "Trigger.ActivePerHour", "Trigger.TopicAliveMinutes",
-        "Trigger.RandomChatProbability", "Trigger.RandomChatCooldownSeconds",
+        "Trigger.RandomChatProbability", "Trigger.RandomChatSkipPeakHours", "Trigger.RandomChatCooldownSeconds",
         "Trigger.SearchCacheMinutes", "Trigger.AtRecentWindowMinutes",
         "Context.WatermarkTokens", "Context.MaxHistoryPerGroup", "Context.HistoryAssembleCapTokens",
         "Context.MaxAnchorCount", "Context.MinAnchorCount", "Context.DistillKeepMessages",
@@ -364,6 +366,7 @@ public class RuntimeConfig
         "Fun.ReplyNoMemeUrl", "Fun.ReplyNoMemeProbability",
         "Fun.EnableRepeat", "Fun.RepeatProbability", "Fun.RepeatDelayMinSeconds", "Fun.RepeatDelayMaxSeconds",
         "Fun.EnableOsm", "Fun.OsmProbability",
+        "Fun.EnableReversePeriod",
         "Fun.EnableReverseAt", "Fun.ReverseAtProbability",
         "Fun.EnableCallBrother", "Fun.CallBrotherProbability", "Fun.CallBrotherDelaySeconds",
         "PromptPath", "Profile.DailyUpdateLimit", "Profile.ActiveWindowHours", "Trigger.BacklogMaxAgeSeconds",

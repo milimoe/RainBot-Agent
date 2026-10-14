@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using RainBot.Models;
 using RainBot.Services.Config;
@@ -36,6 +37,9 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, SayNoWordsSer
     {
         FunConfig fun = _config.Config.Fun;
         string clean = AtTagRegex.Replace(msg.Content, "").Trim();
+
+        if (fun.EnableReversePeriod && TryReversePeriod(clean, out string reversed))
+            return await ReplyTextAsync(msg, reversed);
 
         // 优先级互斥：一次消息最多命中一个（防刷屏，优于原版可能的多重回复）
         if (fun.EnableReplyYes && clean == "是" && Chance(fun.ReplyYesProbability))
@@ -88,6 +92,22 @@ public class FunService(RuntimeConfig config, SendQueue sendQueue, SayNoWordsSer
     }
 
     // ---------- 各功能实现 ----------
+    internal static bool TryReversePeriod(string text, out string reply)
+    {
+        reply = "";
+        if (!text.EndsWith('。')) return false;
+        string body = text.TrimEnd('。');
+        // 按文本元素倒序，保留 emoji 代理对、组合字符和连字序列。
+        int[] positions = StringInfo.ParseCombiningCharacters(body);
+        List<string> tail = [];
+        for (int i = positions.Length - 1; i >= Math.Max(0, positions.Length - 50); i--)
+        {
+            int end = i + 1 < positions.Length ? positions[i + 1] : body.Length;
+            tail.Add(body[positions[i]..end]);
+        }
+        reply = string.Concat(tail) + "。";
+        return true;
+    }
 
     /// <summary>随机反驳是：消息恰好是「是」→ 概率反驳</summary>
     private async Task<FunResult> ReplyTextAsync(IncomingMessage msg, string content)

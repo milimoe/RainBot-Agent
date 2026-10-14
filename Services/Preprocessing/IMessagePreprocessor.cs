@@ -2,7 +2,7 @@ using RainBot.Models;
 
 namespace RainBot.Services.Preprocessing;
 
-/// <summary>通过回复触发判定后、调用 LLM 前的本轮消息上下文。</summary>
+/// <summary>随机互动和回复触发判定前的本轮消息上下文。</summary>
 public sealed record MessagePreprocessContext(
     IncomingMessage Current,
     IReadOnlyList<IncomingMessage> Batch,

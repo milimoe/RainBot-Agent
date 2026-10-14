@@ -14,7 +14,7 @@ namespace RainBot.Services.QQ;
 
 /// <summary>
 /// 入站消息处理（消息队列消费者）：
-/// 统计 → 输入风控 → 历史入库 → 命令处理（无需 @，管理员指令按权限放行）→ 随机互动 → 被动触发判定（@ 即时响应 / 普通消息概率插嘴）→ 工作流。
+/// 统计 → 输入风控 → 历史入库 → 命令处理 → 资料提取与直发 → 随机互动 → 被动触发判定 → 工作流。
 /// </summary>
 public class MessageProcessor
 {
@@ -183,17 +183,6 @@ public class MessageProcessor
             }
         }
 
-        // 5. 随机互动（原版 RainBOT 娱乐功能：反驳/复读/OSM/反向艾特/叫哥，纯规则不耗 Token）
-        // 私聊不玩随机互动：反向艾特/叫哥/复读在 1:1 场景下很怪，且会打断正常对话
-        if (!message.IsPrivate && !message.SkipSideEffects)
-        {
-            FunResult fun = await _fun.TryRespondAsync(message);
-            if (fun.Blocked)
-            {
-                return false;
-            }
-        }
-
         return true;
     }
 
@@ -205,6 +194,28 @@ public class MessageProcessor
         List<IncomingMessage> fresh = candidates.Where(m => IsFresh(m, now)).ToList();
         if (fresh.Count == 0) return;
         IncomingMessage message = fresh.LastOrDefault(m => m.IsAtRobot) ?? fresh[^1];
+        // 链接解析与直接发送独立于 LLM 的被动触发判定。
+        // 图片与引用：本条附件/引用自带优先，其次按 ref_msg_idx 本地回溯，最后按时间窗回溯本人最近的图
+        (List<string> imageUrls, string quotedText) = ResolveContext(message, now);
+        List<string>? quotedVideoUrls = string.IsNullOrEmpty(message.RefMsgIdx) ? null
+            : _historyStore.FindByMsgIdx(message.GroupOpenId, message.RefMsgIdx)?.VideoUrls;
+        List<PreprocessResult> preprocessed = _preprocessors == null ? [] : await _preprocessors.ProcessAsync(
+            new(message, fresh, quotedText, imageUrls, quotedVideoUrls ?? [], now), ct);
+        // 资料提取与直发先执行，再逐条处理随机互动；被娱乐功能截断的消息仍完成解析。
+        List<IncomingMessage> unhandled = [];
+        foreach (IncomingMessage candidate in fresh)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_bots?.Get(candidate.BotId.Length > 0 ? candidate.BotId : Services.Bots.BotKeys.GetBotId(candidate.GroupOpenId))?.Paused == true) continue;
+            if (!candidate.IsPrivate && !candidate.SkipSideEffects
+                && (await _fun.TryRespondAsync(candidate)).Blocked) continue;
+            unhandled.Add(candidate);
+        }
+        if (unhandled.Count == 0) return;
+        fresh = unhandled;
+        message = fresh.LastOrDefault(m => m.IsAtRobot) ?? fresh[^1];
+        (imageUrls, quotedText) = ResolveContext(message, now);
+
         bool sensitive = false;
         // 6. 被动触发判定：@/回复 → 即时响应；普通消息 → 概率插嘴（Trigger.RandomChatProbability，0 = 关闭）
         bool atTriggered = _passiveTrigger.ShouldTrigger(message, now);
@@ -229,21 +240,6 @@ public class MessageProcessor
             _logger.LogDebug("被动触发通过（{Kind}），进入工作流：group={Group} msg={MsgId}", randomChat ? "随机插嘴" : "@", message.GroupOpenId, message.MsgId);
         }
 
-        // 链接解析与直接发送独立于 LLM 的被动触发判定。
-        // 图片与引用：本条附件/引用自带优先，其次按 ref_msg_idx 本地回溯，最后按时间窗回溯本人最近的图
-        (List<string> imageUrls, string quotedText) = ResolveContext(message, now);
-        foreach (IncomingMessage other in fresh.Where(m => !ReferenceEquals(m, message)))
-        {
-            var (images, quote) = ResolveContext(other, now);
-            // 多人的附件不能作为触发者附件送入视觉模型，避免图片归属串人。
-            // 其他人的引用保留在各自消息中，不能拼入当前触发者的引用。
-        }
-        imageUrls = imageUrls.Distinct(StringComparer.Ordinal).ToList();
-
-        List<string>? quotedVideoUrls = string.IsNullOrEmpty(message.RefMsgIdx) ? null
-            : _historyStore.FindByMsgIdx(message.GroupOpenId, message.RefMsgIdx)?.VideoUrls;
-        List<PreprocessResult> preprocessed = _preprocessors == null ? [] : await _preprocessors.ProcessAsync(
-            new(message, fresh, quotedText, imageUrls, quotedVideoUrls ?? [], now), ct);
         if (!atTriggered && !randomChat) return;
 
         // 7. 被 @ 时召回个人画像；插嘴以多人讨论为中心，避免画像抢占当前话题。

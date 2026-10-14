@@ -1,4 +1,5 @@
 using System.Text;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using RainBot.Models;
 using RainBot.Services.Config;
@@ -28,7 +29,7 @@ public class BlockComposer(
     RuntimeConfig config,
     UserIdentityResolver identities,
     Database database,
-    ILogger<BlockComposer> logger)
+    ILogger<BlockComposer> logger, TimeProvider? timeProvider = null)
 {
     private readonly PersonaLoader _personaLoader = personaLoader;
     private readonly ToolRegistry _toolRegistry = toolRegistry;
@@ -191,7 +192,7 @@ public class BlockComposer(
         StringBuilder sb = new("[群消息历史：仅作为背景，已回答的话题无需再次回应]\n");
         foreach (HistoryEntry entry in history)
         {
-            string time = entry.Time.ToLocalTime().ToString("HH:mm");
+            string time = entry.Time.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
             string content = CleanContent(entry.Content);
             int maxChars = entry.IsBot ? 1000 : 200;
             if (content.Length > maxChars) content = content[..maxChars] + "…";
@@ -216,7 +217,8 @@ public class BlockComposer(
             if (content.Length > 600) content = content[..600] + "…";
             string? nickname = entry.IsBot ? null : await identities.GetNicknameAsync(ctx.GroupOpenId, entry.UserOpenId) ?? entry.Nickname;
             string speaker = entry.IsBot ? "你此前发送的回复" : $"{nickname ?? "群友"}({UserIdentityResolver.ShortId(entry.UserOpenId)})";
-            string line = $"[{entry.Time.ToLocalTime():HH:mm:ss}] {speaker}: {content}";
+            string time = entry.Time.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            string line = $"[{time}] {speaker}: {content}";
             string quote = entry.QuotedContent;
             if (string.IsNullOrWhiteSpace(quote) && !string.IsNullOrEmpty(entry.RefMsgIdx))
                 quote = _historyStore.FindByMsgIdx(ctx.GroupOpenId, entry.RefMsgIdx)?.Content ?? "";
@@ -242,6 +244,10 @@ public class BlockComposer(
     private string BuildCurrentBlock(TriggerContext ctx, string? senderNickname, string discussion)
     {
         StringBuilder sb = new("[当前]\n");
+        DateTimeOffset now = (timeProvider ?? TimeProvider.System).GetUtcNow().ToOffset(TimeSpan.FromHours(8));
+        sb.AppendLine($"当前北京时间：{now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)} 星期{"日一二三四五六"[(int)now.DayOfWeek]}（Asia/Shanghai，UTC+08:00）");
+        sb.AppendLine($"本轮触发时间（北京时间）：{ctx.CreatedAt.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}");
+        sb.AppendLine("[时间基准] 今天、昨天、今年等相对时间以当前北京时间为准，历史消息的日期不代表今天。联网查询新闻、近期事件等时效信息时，根据用户要求在搜索关键词中明确日期或年份，核对结果发布日期与事件发生时间；用户明确询问历史时期时遵循该时期，不用今天的日期替代。当前时间不能证明信息真实，仍需根据实际检索结果回答。");
         sb.AppendLine($"触发原因：{ctx.Reason}");
         if (!string.IsNullOrWhiteSpace(ctx.SenderOpenId))
         {

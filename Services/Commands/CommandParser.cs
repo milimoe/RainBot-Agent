@@ -288,6 +288,7 @@ public class CommandParser(RuntimeConfig config, GroupStateManager states, Datab
             $"反驳不：{(fun.EnableReplyNo ? $"开启（{fun.ReplyNoProbability}%，烂梗 {fun.ReplyNoMemeProbability}%）" : "关闭")}\n" +
             $"复读：{(fun.EnableRepeat ? $"开启（{fun.RepeatProbability}%，延迟 {fun.RepeatDelayMinSeconds}-{fun.RepeatDelayMaxSeconds}s）" : "关闭")}\n" +
             $"OSM：{osm}\n" +
+            $"反转句号：{(fun.EnableReversePeriod ? "开启" : "关闭")}\n" +
             $"反向艾特：{(fun.EnableReverseAt ? $"开启（{fun.ReverseAtProbability}%）" : "关闭")}\n" +
             $"叫哥：{(fun.EnableCallBrother ? $"开启（{fun.CallBrotherProbability}%）" : "关闭")}";
     }
