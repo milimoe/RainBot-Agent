@@ -213,6 +213,8 @@ public class RuntimeConfig
                 case "Context.WatermarkTokens": _config.Context.WatermarkTokens = ParseInt(value, nameof(_config.Context.WatermarkTokens)); return true;
                 case "Context.MaxHistoryPerGroup": _config.Context.MaxHistoryPerGroup = ParseInt(value, nameof(_config.Context.MaxHistoryPerGroup)); return true;
                 case "Context.HistoryAssembleCapTokens": _config.Context.HistoryAssembleCapTokens = ParseInt(value, nameof(_config.Context.HistoryAssembleCapTokens)); return true;
+                case "Context.HistoryCompressAtTokens": _config.Context.HistoryCompressAtTokens = ParseInt(value, nameof(_config.Context.HistoryCompressAtTokens)); return true;
+                case "Context.HistoryTargetTokens": _config.Context.HistoryTargetTokens = ParseInt(value, nameof(_config.Context.HistoryTargetTokens)); return true;
                 case "Context.MaxAnchorCount": _config.Context.MaxAnchorCount = ParseInt(value, nameof(_config.Context.MaxAnchorCount)); return true;
                 case "Context.MinAnchorCount": _config.Context.MinAnchorCount = ParseInt(value, nameof(_config.Context.MinAnchorCount)); return true;
                 case "Context.DistillKeepMessages": _config.Context.DistillKeepMessages = ParseInt(value, nameof(_config.Context.DistillKeepMessages)); return true;
@@ -359,6 +361,7 @@ public class RuntimeConfig
         "Trigger.RandomChatProbability", "Trigger.RandomChatSkipPeakHours", "Trigger.RandomChatCooldownSeconds",
         "Trigger.SearchCacheMinutes", "Trigger.AtRecentWindowMinutes",
         "Context.WatermarkTokens", "Context.MaxHistoryPerGroup", "Context.HistoryAssembleCapTokens",
+        "Context.HistoryCompressAtTokens", "Context.HistoryTargetTokens",
         "Context.MaxAnchorCount", "Context.MinAnchorCount", "Context.DistillKeepMessages",
         "Context.DegradeResetSilenceMinutes", "Context.CacheAlertThreshold", "Context.DistillMaxChars",
         "Safety.MaxQpmPerGroup", "Safety.DedupeWindowSeconds",
@@ -375,3 +378,4 @@ public class RuntimeConfig
         "Search.Provider", "Search.SearxngBaseUrl", "Search.TavilyApiKey", "Search.TavilyDailyLimit", "Search.TimeoutSeconds", "Search.MaxResults"
     ];
 }
+

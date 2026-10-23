@@ -1,6 +1,6 @@
 using System.Text;
+using System.Text.Json;
 using System.Globalization;
-using System.Text.RegularExpressions;
 using RainBot.Models;
 using RainBot.Services.Config;
 using RainBot.Services.Llm;
@@ -63,7 +63,9 @@ public class BlockComposer(
         string blockC = BuildGroupProfileBlock(profile, await database.GetRecentDistillSummariesAsync(ctx.GroupOpenId));
         string blockD = await _anchorManager.GetAnchorsTextAsync(ctx.GroupOpenId, anchorCount);
 
-        int fixedTokens = TokenEstimator.Estimate(blockA) + TokenEstimator.Estimate(blockB) + TokenEstimator.Estimate(blockC) + TokenEstimator.Estimate(blockD);
+        var apiTools = _toolRegistry.GetToolDefs();
+        int apiToolTokens = apiTools.Count > 0 ? TokenEstimator.Estimate(JsonSerializer.Serialize(apiTools)) : 0;
+        int fixedTokens = apiToolTokens + TokenEstimator.Estimate(blockA) + TokenEstimator.Estimate(blockB) + TokenEstimator.Estimate(blockC) + TokenEstimator.Estimate(blockD);
 
         // 2. Block E：历史预算 = min(历史预算, 水位 - 固定块 - 当前块 - 余量)
         string? senderNickname = ctx.SenderNickname;
@@ -77,8 +79,11 @@ public class BlockComposer(
             cfg.HistoryAssembleCapTokens,
             Math.Max(1000, cfg.WatermarkTokens - fixedTokens - fTokens - margin));
 
-        List<HistoryEntry> history = _historyStore.GetRecent(ctx.GroupOpenId, eBudget, out int dropped);
-        string blockE = await BuildHistoryBlockAsync(ctx.GroupOpenId, history);
+        List<HistoryEntry> snapshot = _historyStore.GetRecent(ctx.GroupOpenId, int.MaxValue, out _);
+        int untrimmedTokens = TokenEstimator.Estimate(BuildHistoryBlock(snapshot));
+        List<HistoryEntry> history = SelectHistoryTail(snapshot, eBudget);
+        int dropped = snapshot.Count - history.Count;
+        string blockE = BuildHistoryBlock(history);
         int eTokens = TokenEstimator.Estimate(blockE);
 
         // 3. 压缩前防御第二步：固定块异常巨大（几乎不可能）导致超水位时，缩减锚点
@@ -90,7 +95,7 @@ public class BlockComposer(
             {
                 _logger.LogWarning("群 {Group} 固定块超水位，锚点已缩减至 {Count}", ctx.GroupOpenId, shrunkAnchorCount);
                 blockD = shrunkD;
-                fixedTokens = TokenEstimator.Estimate(blockA) + TokenEstimator.Estimate(blockB) + TokenEstimator.Estimate(blockC) + TokenEstimator.Estimate(blockD);
+                fixedTokens = apiToolTokens + TokenEstimator.Estimate(blockA) + TokenEstimator.Estimate(blockB) + TokenEstimator.Estimate(blockC) + TokenEstimator.Estimate(blockD);
             }
         }
 
@@ -124,7 +129,10 @@ public class BlockComposer(
             },
             HistoryCount = history.Count,
             HistoryDropped = dropped,
-            EstimatedTokens = fixedTokens + eTokens + fTokens,
+            HistorySnapshot = snapshot,
+            UntrimmedHistoryTokens = untrimmedTokens,
+            HistoryBudgetTokens = eBudget,
+            EstimatedTokens = TokenEstimator.EstimateRequestText(messages, apiTools),
             HistoryTokens = eTokens,
             FixedTokens = fixedTokens,
             GroupOpenId = ctx.GroupOpenId
@@ -183,29 +191,22 @@ public class BlockComposer(
         return sb.ToString();
     }
 
-    private async Task<string> BuildHistoryBlockAsync(string groupOpenId, List<HistoryEntry> history)
+    internal static string BuildHistoryBlock(IReadOnlyList<HistoryEntry> history) => history.Count == 0
+        ? "[群消息历史]\n（暂无）"
+        : HistoryFormatter.Header + string.Concat(history.Select(HistoryFormatter.Format));
+
+    internal static List<HistoryEntry> SelectHistoryTail(IReadOnlyList<HistoryEntry> snapshot, int budget)
     {
-        if (history.Count == 0)
+        int tokens = TokenEstimator.Estimate(HistoryFormatter.Header);
+        int start = snapshot.Count;
+        while (start > 0)
         {
-            return "[群消息历史]\n（暂无）";
+            int next = TokenEstimator.Estimate(HistoryFormatter.Format(snapshot[start - 1]));
+            if ((long)tokens + next > budget) break;
+            tokens += next;
+            start--;
         }
-        StringBuilder sb = new("[群消息历史：仅作为背景，已回答的话题无需再次回应]\n");
-        foreach (HistoryEntry entry in history)
-        {
-            string time = entry.Time.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-            string content = CleanContent(entry.Content);
-            int maxChars = entry.IsBot ? 1000 : 200;
-            if (content.Length > maxChars) content = content[..maxChars] + "…";
-            if (entry.IsBot)
-            {
-                sb.AppendLine($"[{time}] 你此前发送的回复: {content}");
-                continue;
-            }
-            string? nickname = await identities.GetNicknameAsync(groupOpenId, entry.UserOpenId) ?? entry.Nickname;
-            string speaker = string.IsNullOrWhiteSpace(nickname) ? UserIdentityResolver.ShortId(entry.UserOpenId) : $"{nickname}({UserIdentityResolver.ShortId(entry.UserOpenId)})";
-            sb.AppendLine($"[{time}] {speaker}: {content}");
-        }
-        return sb.ToString();
+        return snapshot.Skip(start).ToList();
     }
 
     private async Task<string> BuildDiscussionBlockAsync(TriggerContext ctx)
@@ -346,15 +347,7 @@ public class BlockComposer(
         return sb.ToString();
     }
     /// <summary>清理消息中的富文本标签（@ 标签替换为可读形式）</summary>
-    private static string CleanContent(string content)
-    {
-        // <@openid>（新格式）或 <@!openid>（历史格式）→ @用户（保留可读性）
-        return Regex.Replace(content, @"<@!?([^>]+)>", m => "@" + UserIdentityResolver.ShortId(m.Groups[1].Value))
-            .Replace("<reply>", "")
-            .Replace("</reply>", "")
-            .Replace("<break/>", "\n")
-            .Trim();
-    }
+    private static string CleanContent(string content) => HistoryFormatter.CleanContent(content);
 }
 
 /// <summary>组装结果</summary>
@@ -363,9 +356,13 @@ public class ComposeResult
     public Dictionary<string, int> BlockTokens { get; init; } = [];
     public required List<ChatMessage> Messages { get; init; }
     public required string GroupOpenId { get; init; }
+    public IReadOnlyList<HistoryEntry> HistorySnapshot { get; init; } = [];
+    public int UntrimmedHistoryTokens { get; init; }
+    public int HistoryBudgetTokens { get; init; }
     public int HistoryCount { get; init; }
     public int HistoryDropped { get; init; }
     public int EstimatedTokens { get; init; }
     public int HistoryTokens { get; init; }
     public int FixedTokens { get; init; }
 }
+

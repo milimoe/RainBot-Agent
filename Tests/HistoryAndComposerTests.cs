@@ -39,12 +39,12 @@ public class HistoryAndComposerTests
     {
         ServiceProvider sp = await TestHost.BuildReadyAsync();
         var store = sp.GetRequiredService<HistoryStore>();
-        // 每条消息估算约 10+ token，预算 40 只够 3-4 条
+        // 每条消息估算约 10+ token，预算 80 只够少数几条（包含日期与发言者）
         for (int i = 1; i <= 10; i++)
         {
             await store.AppendAsync(Group, TestHelpers.Msg(Group, "user", $"这是第{i}条测试消息内容，用于验证预算裁剪逻辑"));
         }
-        var recent = store.GetRecent(Group, 40, out int dropped);
+        var recent = store.GetRecent(Group, 80, out int dropped);
         Assert.True(recent.Count >= 1 && recent.Count < 10);
         Assert.True(dropped > 0);
         // 保留的是尾部（最新）
@@ -232,3 +232,4 @@ public class WatermarkTests
         Assert.DoesNotContain("主动暖场", passive.Messages[3].Content);
     }
 }
+

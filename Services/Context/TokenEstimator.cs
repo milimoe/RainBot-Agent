@@ -1,3 +1,6 @@
+using System.Text.Json;
+using RainBot.Services.Llm;
+
 namespace RainBot.Services.Context;
 
 /// <summary>
@@ -20,5 +23,23 @@ public static class TokenEstimator
         return (int)Math.Ceiling(cjk * 0.8 + ascii / 4.0) + 4;
     }
 
+    /// <summary>每轮请求的文本估算，包含角色、工具定义与工具调用；不含图片视觉 tokens。</summary>
+    public static int EstimateRequestText(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDef>? tools = null)
+    {
+        int total = 0;
+        foreach (var message in messages)
+        {
+            string text = message.ContentParts is { Count: > 0 }
+                ? string.Concat(message.ContentParts.Where(p => p.Type == "text").Select(p => p.Text))
+                : message.Content ?? "";
+            total += EstimateMessage(message.Role + "\n" + text);
+            if (message.ToolCalls is { Count: > 0 }) total += Estimate(JsonSerializer.Serialize(message.ToolCalls));
+            if (message.ToolCallId != null) total += Estimate(message.ToolCallId);
+        }
+        if (tools is { Count: > 0 }) total += Estimate(JsonSerializer.Serialize(tools));
+        return total;
+    }
+
     public static int EstimateMessage(string content) => Estimate(content) + PerMessageOverhead;
 }
+

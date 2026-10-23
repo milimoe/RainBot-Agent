@@ -236,14 +236,20 @@ public class TriggerConfig
 
 public class ContextConfig
 {
-    /// <summary>上下文水位线（tokens，192k 的 80%）</summary>
+    /// <summary>最终请求的估算文本输入水位；超限兜底，不是正常压缩触发值。</summary>
     public int WatermarkTokens { get; set; } = 153600;
 
-    /// <summary>每群保留的最大历史消息数（数据库与内存上限）</summary>
-    public int MaxHistoryPerGroup { get; set; } = 500;
+    /// <summary>存储兜底上限；超限后批量保留最新一半，正常历史由 token 软水位治理。</summary>
+    public int MaxHistoryPerGroup { get; set; } = 10000;
 
-    /// <summary>组装时 Block E 的历史 token 预算（低于水位，压缩前防御第一步优先删 E 头部）</summary>
+    /// <summary>Block E 单次请求的历史预算；完整历史在裁剪前另行检查软水位。</summary>
     public int HistoryAssembleCapTokens { get; set; } = 128000;
+
+    /// <summary>完整渲染历史达到此值时正常压缩，不进入降级。</summary>
+    public int HistoryCompressAtTokens { get; set; } = 76800;
+
+    /// <summary>正常压缩后保留原文的目标 token 数，须低于触发水位。</summary>
+    public int HistoryTargetTokens { get; set; } = 38400;
 
     /// <summary>L1 锚点最大数量（Top 高互动用户）</summary>
     public int MaxAnchorCount { get; set; } = 5;
@@ -251,7 +257,7 @@ public class ContextConfig
     /// <summary>压缩前防御第二步：锚点缩减到的数量</summary>
     public int MinAnchorCount { get; set; } = 2;
 
-    /// <summary>蒸馏压缩后保留的最近消息条数</summary>
+    /// <summary>手动压缩及应急降级后保留条数；正常压缩使用 HistoryTargetTokens。</summary>
     public int DistillKeepMessages { get; set; } = 3;
 
     /// <summary>降级运行：群聊静默该时长（分钟）后彻底重置上下文、重建缓存</summary>
@@ -380,3 +386,4 @@ public class ProfileConfig
     public int DailyUpdateLimit { get; set; } = 1;
     public int ActiveWindowHours { get; set; } = 168;
 }
+

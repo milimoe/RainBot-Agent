@@ -62,9 +62,11 @@ public static class ConfigMetadata
         new("Trigger.AtRecentWindowMinutes", "触发", "互动窗口（分钟）", "群友在该时间窗内出现过才会被 @（互动增强）", "number", 1, 1440),
 
         // ---------- 上下文 ----------
-        new("Context.WatermarkTokens", "上下文", "上下文水位线", "tokens 水位线（192k 的 80%），超限触发三级治理", "number", 1000, 1000000),
-        new("Context.MaxHistoryPerGroup", "上下文", "每群历史上限", "内存与数据库保留的最大历史消息数", "number", 10, 10000),
+        new("Context.WatermarkTokens", "上下文", "上下文水位线", "最终请求估算文本输入水位，正常压缩使用独立软水位；图片 token 不含在估算内", "number", 1000, 1000000),
+        new("Context.MaxHistoryPerGroup", "上下文", "每群历史上限", "存储兜底上限；内存超限后保留最新一半，正常按 token 压缩", "number", 10, 10000),
         new("Context.HistoryAssembleCapTokens", "上下文", "历史组装预算", "Block E 历史 token 预算（压缩前防御第一步）", "number", 1000, 1000000),
+        new("Context.HistoryCompressAtTokens", "上下文", "历史压缩软水位", "完整渲染历史达到此 token 数时压缩较早部分，不进入降级", "number", 1000, 1000000),
+        new("Context.HistoryTargetTokens", "上下文", "压缩后历史目标", "正常压缩后保留原文的目标 tokens；有效值会限制在软水位以下", "number", 1000, 1000000),
         new("Context.MaxAnchorCount", "上下文", "锚点最大数", "L1 锚点 Top 高互动用户数量", "number", 1, 50),
         new("Context.MinAnchorCount", "上下文", "锚点最小数", "压缩时锚点缩减到的数量", "number", 1, 50),
         new("Context.DistillKeepMessages", "上下文", "蒸馏保留条数", "蒸馏压缩后保留的最近消息数", "number", 1, 100),
@@ -118,3 +120,4 @@ public static class ConfigMetadata
 
     public static IReadOnlyList<string> Sections => ["LLM", "画像", "触发", "上下文", "风控", "随机互动", "搜索", "通用"];
 }
+
