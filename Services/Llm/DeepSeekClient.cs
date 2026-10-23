@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using RainBot.Services.Config;
+using RainBot.Services.Context;
 
 namespace RainBot.Services.Llm;
 
@@ -31,6 +32,9 @@ public class DeepSeekClient(RuntimeConfig config, IHttpClientFactory httpClientF
     public async Task<ChatResult> ChatAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDef>? tools = null, int? maxTokens = null, double? temperature = null, string? toolChoice = null, CancellationToken ct = default)
     {
         var cfg = _config.Config.Llm;
+        int inputTokens = TokenEstimator.EstimateRequestText(messages, tools);
+        if (inputTokens > _config.Config.Context.WatermarkTokens)
+            throw new LlmException($"估算文本输入 {inputTokens} tokens 超过上下文水位 {_config.Config.Context.WatermarkTokens}，本轮未发送（图片 tokens 另计）。");
         ChatRequest request = new()
         {
             Model = cfg.Model,
@@ -506,3 +510,4 @@ public class ChatResult
     /// <summary>结束原因：stop / length / tool_calls；null = 响应未携带</summary>
     public string? FinishReason { get; init; }
 }
+

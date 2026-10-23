@@ -17,13 +17,20 @@ public sealed partial class LinkPrefetcher(PageService pages, RuntimeConfig conf
     {
         var results = await PrefetchAsync(context.Current, context.Batch, context.QuotedText,
             context.Now, cancellationToken, context.QuotedVideoUrls);
+        var directSources = context.GetDirectLinkSources(Extract);
         int max = Math.Clamp(config.Config.Page.MaxChars, 100, 800);
         return results.Select(result =>
         {
             string text = $"标题：{result.Title}\n{result.Summary}";
             if (text.Length > max) text = text[..max] + "…";
+            directSources.TryGetValue(result.RequestedUrl, out var directMessage);
             return new PreprocessedText(result.Url, result.Status,
-                result.Status == "ok" ? "只提供视频元信息，未观看视频。\n" + text : "", result.Error) { DisplayCard = result.DisplayCard };
+                result.Status == "ok" ? "只提供视频元信息，未观看视频。\n" + text : "", result.Error)
+            {
+                DisplayCard = result.DisplayCard,
+                AllowDirectSend = directMessage != null,
+                DirectSendMessage = directMessage
+            };
         }).ToList();
     }
 
@@ -67,9 +74,10 @@ public sealed partial class LinkPrefetcher(PageService pages, RuntimeConfig conf
         budget.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(config.Config.Page.BudgetSeconds, 1, 10)));
         List<PageResult> results = (await Task.WhenAll(links.Select(async link =>
         {
-            try { return await pages.ReadAsync(link, budget.Token); }
+            // PageService 可能返回缓存对象；复制元信息，不能让来源标记污染共享缓存。
+            try { return (await pages.ReadAsync(link, budget.Token)) with { RequestedUrl = link }; }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            { return new PageResult("timeout", link, "bilibili", Error: "本轮读取预算已用尽，未取得视频信息。"); }
+            { return new PageResult("timeout", link, "bilibili", Error: "本轮读取预算已用尽，未取得视频信息。") { RequestedUrl = link }; }
         }))).ToList();
         logger?.LogDebug("视频链接预取完成：{Count} 条，耗时 {ElapsedMs}ms，结果：{Results}", results.Count,
             timer.ElapsedMilliseconds, string.Join("；", results.Select(result => $"{result.Status} / {result.Title}")));
@@ -79,3 +87,4 @@ public sealed partial class LinkPrefetcher(PageService pages, RuntimeConfig conf
     [GeneratedRegex(@"https?://[^\s<>""'【】，。；！？（）]+", RegexOptions.IgnoreCase, 100)] private static partial Regex Urls();
     [GeneratedRegex(@"这个|这条|这视频|刚才.*(?:链接|视频)|(?:链接|视频).*(?:咋样|怎么样|说什么|讲什么|分析|看看)", RegexOptions.None, 100)] private static partial Regex Followup();
 }
+

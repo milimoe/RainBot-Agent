@@ -760,7 +760,7 @@ public class Database
 
     // ---------- 蒸馏摘要 ----------
 
-    public async Task SaveDistillSummaryAsync(string groupOpenId, string summary, string? expectedReset = null)
+    public async Task<bool> SaveDistillSummaryAsync(string groupOpenId, string summary, string? expectedReset = null, bool replaceExisting = false)
     {
         await using SqliteConnection conn = await OpenAsync();
         await using SqliteCommand cmd = conn.CreateCommand();
@@ -769,7 +769,19 @@ public class Database
         cmd.Parameters.AddWithValue("$g", groupOpenId);
         cmd.Parameters.AddWithValue("$s", summary);
         cmd.Parameters.AddWithValue("$ts", Now());
-        await cmd.ExecuteNonQueryAsync();
+        using var transaction = conn.BeginTransaction();
+        cmd.Transaction = transaction;
+        if (await cmd.ExecuteNonQueryAsync() == 0) return false;
+        if (replaceExisting)
+        {
+            await using var cleanup = conn.CreateCommand();
+            cleanup.Transaction = transaction;
+            cleanup.CommandText = "DELETE FROM distill_summaries WHERE group_openid = $g AND id <> last_insert_rowid();";
+            cleanup.Parameters.AddWithValue("$g", groupOpenId);
+            await cleanup.ExecuteNonQueryAsync();
+        }
+        transaction.Commit();
+        return true;
     }
 
     public async Task ClearDistillSummariesAsync(string groupOpenId)
@@ -1064,3 +1076,4 @@ internal sealed class GroupWebStatsAcc
     public long InputTokens { get; set; }
     public long OutputTokens { get; set; }
 }
+

@@ -5,6 +5,10 @@ public sealed record PageResult(string Status, string Url, string Reader = "", s
 {
     [System.Text.Json.Serialization.JsonIgnore]
     public RainBot.Services.Preprocessing.ParsedContentCard? DisplayCard { get; init; }
+
+    /// <summary>本次预取的原始地址，用于短链接跳转后仍识别消息来源；不写入工具输出。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string RequestedUrl { get; init; } = "";
 }
 
 public interface ISiteReader
@@ -26,3 +30,4 @@ public sealed class SiteReaderRegistry(IEnumerable<ISiteReader> readers, OpenGra
     public Task<PageResult> ReadAsync(Uri url, PageReaderHttp http, int maxBytes, CancellationToken cancellationToken) =>
         (readers.FirstOrDefault(reader => reader.CanRead(url)) ?? fallback).ReadAsync(url, http, maxBytes, cancellationToken);
 }
+

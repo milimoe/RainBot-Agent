@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using RainBot.Services.Config;
 using RainBot.Services.Profile;
 using RainBot.Services.Storage;
@@ -6,11 +7,9 @@ using RainBot.Services.Trigger;
 namespace RainBot.Services.Context;
 
 /// <summary>
-/// 192k 水位管理（PRD 3.3）：
-/// - 压缩前防御：BlockComposer 已按预算删 E 头部、缩 D 锚点（组装阶段完成）。
-/// - 强制压缩：蒸馏长历史（3-5 条摘要存库）→ 清空 E 仅留最近 N 条 → 降级运行。
-/// - 降级恢复：群聊静默足够长后彻底重置上下文，重建缓存。
-/// 返回是否需要重建上下文的标志（蒸馏后 E 已清空，调用方重新组装一次）。
+/// 历史完整渲染量达到软水位时压缩旧前缀，保留近期原文，不进入降级。
+/// 正常压缩失败保留历史并冷却重试；最终输入异常超水位才使用原有降级兜底。
+/// Compacted / Distilled / Reset 后调用方重新组装一次。
 /// </summary>
 public class WatermarkManager(
     RuntimeConfig config,
@@ -24,6 +23,8 @@ public class WatermarkManager(
     private readonly HistoryStore _historyStore = historyStore;
     private readonly GroupStateManager _states = states;
     private readonly ILogger<WatermarkManager> _logger = logger;
+
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _compressionRetryAfter = new();
 
     /// <summary>
     /// 降级恢复检查（由 WarmupScheduler 定时扫描调用）：静默足够长后彻底重置上下文。
@@ -51,9 +52,9 @@ public class WatermarkManager(
     }
 
     /// <summary>
-    /// 水位治理：返回处理动作。Distilled 时调用方应重新组装上下文。
+    /// 水位治理；调用方已持有会话锁。压缩或重置后重新组装上下文。
     /// </summary>
-    public async Task<WatermarkAction> EnforceAsync(ComposeResult compose)
+    public async Task<WatermarkAction> EnforceAsync(ComposeResult compose, CancellationToken ct = default)
     {
         var cfg = _config.Config.Context;
         GroupState state = _states.GetOrCreate(compose.GroupOpenId);
@@ -74,15 +75,48 @@ public class WatermarkManager(
             return WatermarkAction.DegradedSkipped;
         }
 
-        // 强制压缩：突破水位线
-        if (compose.EstimatedTokens > cfg.WatermarkTokens)
+        // 检查裁剪前的完整历史；正常压缩不降级、不清空最近对话。
+        int trigger = Math.Max(1, Math.Min(cfg.HistoryCompressAtTokens, compose.HistoryBudgetTokens > 0
+            ? compose.HistoryBudgetTokens : cfg.HistoryAssembleCapTokens));
+        if (compose.UntrimmedHistoryTokens >= trigger && compose.HistorySnapshot.Count > 1
+            && (!_compressionRetryAfter.TryGetValue(compose.GroupOpenId, out var retryAfter) || now >= retryAfter))
         {
-            await DistillAndDegradeAsync(compose);
-            return WatermarkAction.Distilled;
+            int target = Math.Clamp(cfg.HistoryTargetTokens, 0, trigger - 1);
+            var retained = BlockComposer.SelectHistoryTail(compose.HistorySnapshot, target);
+            int keep = Math.Max(1, retained.Count);
+            int desiredRemove = compose.HistorySnapshot.Count - keep;
+            // 长时间未触发回复时可能积累远超软水位的历史；分批处理旧前缀，
+            // 给压缩器自身的提示与已有摘要留空间，避免永远因输入超限而失败。
+            int batchBudget = Math.Max(1, cfg.WatermarkTokens / 2);
+            int batchTokens = TokenEstimator.Estimate(HistoryFormatter.Header);
+            int remove = 0;
+            while (remove < desiredRemove)
+            {
+                int next = TokenEstimator.Estimate(HistoryFormatter.Format(compose.HistorySnapshot[remove]));
+                if ((long)batchTokens + next > batchBudget) break;
+                batchTokens += next;
+                remove++;
+            }
+            keep = compose.HistorySnapshot.Count - remove;
+            if (remove > 0)
+            {
+                _compressionRetryAfter[compose.GroupOpenId] = now.AddMinutes(5);
+                string summary = await _distiller.CompressAsync(compose.GroupOpenId,
+                    compose.HistorySnapshot.Take(remove).ToList(), ct, consolidate: true);
+                if (!string.IsNullOrWhiteSpace(summary))
+                {
+                    _historyStore.CompactSnapshot(compose.GroupOpenId, compose.HistorySnapshot, keep);
+                    _compressionRetryAfter.TryRemove(compose.GroupOpenId, out _);
+                    _logger.LogInformation("群 {Group} 正常压缩：历史≈{Before} tokens，保留 {Keep} 条及新到消息，不进入降级",
+                        compose.GroupOpenId, compose.UntrimmedHistoryTokens, keep);
+                    return WatermarkAction.Compacted;
+                }
+                _logger.LogWarning("群 {Group} 正常压缩失败，原历史保留，五分钟后重试", compose.GroupOpenId);
+            }
         }
 
-        // 防御性蒸馏：历史已占用巨大预算（接近水位），提前蒸馏避免失控
-        if (compose.HistoryTokens > cfg.HistoryAssembleCapTokens * 0.6)
+        // 强制压缩：突破水位线
+        if (compose.EstimatedTokens > cfg.WatermarkTokens)
         {
             await DistillAndDegradeAsync(compose);
             return WatermarkAction.Distilled;
@@ -115,6 +149,9 @@ public enum WatermarkAction
     /// <summary>无需处理</summary>
     None,
 
+    /// <summary>正常压缩成功，需重建上下文，不进入降级。</summary>
+    Compacted,
+
     /// <summary>已截取蒸馏快照并降级，需重建上下文；摘要后台生成</summary>
     Distilled,
 
@@ -124,3 +161,4 @@ public enum WatermarkAction
     /// <summary>降级中，本次跳过（静默未满，不触发工作流）</summary>
     DegradedSkipped
 }
+

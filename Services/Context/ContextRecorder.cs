@@ -8,7 +8,7 @@ namespace RainBot.Services.Context;
 
 public sealed record ContextSnapshot(DateTimeOffset TimeUtc, string Text, int EstimatedTokens,
     int WatermarkTokens, int HistoryCount, int HistoryDropped, IReadOnlyDictionary<string, int> Blocks,
-    int ExtraTokens, int ToolSchemaTokens, int ImageCount, bool Truncated);
+    int ExtraTokens, int ToolSchemaTokens, int ImageCount, bool Truncated, int UntrimmedHistoryTokens = 0);
 
 /// <summary>保留最近一次实际模型请求的文字快照，不保存图片 base64，不调用模型。</summary>
 public sealed class ContextRecorder
@@ -53,7 +53,7 @@ public sealed class ContextRecorder
         if (truncated) safe = safe[..MaxSnapshotChars];
         var snapshot = new ContextSnapshot(DateTimeOffset.UtcNow, safe, tokens, watermarkTokens,
             compose?.HistoryCount ?? 0, compose?.HistoryDropped ?? 0,
-            new Dictionary<string, int>(compose?.BlockTokens ?? new Dictionary<string, int>()), extra, toolTokens, images, truncated);
+            new Dictionary<string, int>(compose?.BlockTokens ?? new Dictionary<string, int>()), extra, toolTokens, images, truncated, compose?.UntrimmedHistoryTokens ?? 0);
         lock (_lock)
         {
             _snapshots[group] = snapshot;
@@ -92,8 +92,9 @@ public sealed class ContextRecorder
         double ratio = snapshot.WatermarkTokens > 0 ? (double)snapshot.EstimatedTokens / snapshot.WatermarkTokens : 0;
         return $"当前会话最近一次模型请求（{time}，北京时间）：\n" +
             $"估算输入：≈{snapshot.EstimatedTokens:N0} tokens\n治理水位：{snapshot.WatermarkTokens:N0} tokens，占用 {ratio:P1}（不是模型硬上限）\n" +
-            $"历史：纳入 {snapshot.HistoryCount} 条，组装丢弃 {snapshot.HistoryDropped} 条\n{blocks}\n" +
+            $"历史：纳入 {snapshot.HistoryCount} 条，组装丢弃 {snapshot.HistoryDropped} 条\n裁剪前历史：≈{snapshot.UntrimmedHistoryTokens:N0} tokens\n{blocks}\n" +
             $"追加消息：≈{snapshot.ExtraTokens:N0} tokens\n请求 tools 定义：≈{snapshot.ToolSchemaTokens:N0} tokens\n" +
             $"图片：{snapshot.ImageCount} 张（图片 tokens 未计入估算，全文只显示占位）\n/context full [页码] 查看脱敏全文；只保留最近 64 个会话，重启清空。";
     }
 }
+

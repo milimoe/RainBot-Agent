@@ -53,15 +53,26 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
                 Content = content,
                 Time = DateTimeOffset.UtcNow
             });
-            while (list.Count > _config.Config.Context.MaxHistoryPerGroup) list.RemoveFirst();
+            TrimStorageInBatches(list);
         }
     }
 
-    /// <summary>追加一条历史（尾部），超上限时头部整条丢弃。纯图片消息以 [图片] 占位入库。</summary>
+    private void TrimStorageInBatches(LinkedList<HistoryEntry> list)
+    {
+        int max = Math.Max(1, _config.Config.Context.MaxHistoryPerGroup);
+        if (list.Count <= max) return;
+        int keep = Math.Max(1, max / 2);
+        while (list.Count > keep) list.RemoveFirst();
+    }
+
+    /// <summary>追加一条历史；条数仅作存储兜底，超限批量裁剪。纯图片以占位入库。</summary>
     public async Task AppendAsync(string groupOpenId, IncomingMessage message)
     {
         if (message.IsFromBot && IsOutgoingEcho(groupOpenId, message.Content)) return;
         string content = message.DisplayContent;
+        // 沿用已知昵称优先的显示规则，但只在入库时取一次，之后不改写历史。
+        var user = message.IsFromBot ? null : await _db.GetUserProfileAsync(groupOpenId, message.SenderOpenId);
+        string? nickname = string.IsNullOrWhiteSpace(user?.Nickname) ? message.Username : user.Nickname;
         LinkedList<HistoryEntry> list = _histories.GetOrAdd(groupOpenId, _ => []);
         lock (list)
         {
@@ -69,7 +80,7 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
             {
                 UserOpenId = message.SenderOpenId,
                 IsBot = message.IsFromBot,
-                Nickname = message.Username,
+                Nickname = nickname,
                 Content = content,
                 VideoUrls = RainBot.Services.Page.LinkPrefetcher.Extract(message),
                 Time = message.ReceivedAt,
@@ -79,11 +90,7 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
                 RefMsgIdx = message.RefMsgIdx,
                 QuotedContent = message.QuotedContent
             });
-            int max = _config.Config.Context.MaxHistoryPerGroup;
-            while (list.Count > max)
-            {
-                list.RemoveFirst(); // 头部整条丢弃
-            }
+            TrimStorageInBatches(list);
         }
         await _db.InsertMessageAsync(message.MsgId, message.GroupOpenId, message.SenderOpenId, content, message.IsAtRobot, message.ReceivedAt, message.Username);
         await _db.TrimHistoryAsync(message.GroupOpenId, _config.Config.Context.MaxHistoryPerGroup);
@@ -97,7 +104,7 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
     {
         LinkedList<HistoryEntry>? list = _histories.GetOrAdd(groupOpenId, _ => []);
         List<HistoryEntry> result = [];
-        int total = 0;
+        int total = TokenEstimator.Estimate(HistoryFormatter.Header);
         dropped = 0;
         lock (list)
         {
@@ -105,16 +112,15 @@ public class HistoryStore(RuntimeConfig config, Database db, ILogger<HistoryStor
             LinkedListNode<HistoryEntry>? node = list.Last;
             while (node != null)
             {
-                int tokens = TokenEstimator.EstimateMessage(node.Value.Content);
-                if (total + tokens > tokenBudget)
+                int tokens = TokenEstimator.Estimate(HistoryFormatter.Format(node.Value));
+                if ((long)total + tokens > tokenBudget)
                 {
-                    dropped++;
+                    // 必须是连续尾部，不能跳过大消息后再捡更早的小消息。
+                    dropped = list.Count - result.Count;
+                    break;
                 }
-                else
-                {
-                    result.Add(node.Value);
-                    total += tokens;
-                }
+                result.Add(node.Value);
+                total += tokens;
                 node = node.Previous;
             }
         }
@@ -289,3 +295,4 @@ public class HistoryEntry
     public string RefMsgIdx { get; init; } = "";
     public string QuotedContent { get; init; } = "";
 }
+

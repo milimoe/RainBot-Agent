@@ -84,8 +84,8 @@ public class WorkflowRunner(
             ComposeResult compose = await _blockComposer.BuildAsync(ctx);
 
             // 2. 水位治理：蒸馏/重置后需重新组装一次（最多一次，避免死循环）
-            WatermarkAction action = await _watermarkManager.EnforceAsync(compose);
-            if (action is WatermarkAction.Distilled or WatermarkAction.Reset)
+            WatermarkAction action = await _watermarkManager.EnforceAsync(compose, ct);
+            if (action is WatermarkAction.Compacted or WatermarkAction.Distilled or WatermarkAction.Reset)
             {
                 compose = await _blockComposer.BuildAsync(ctx);
             }
@@ -173,3 +173,4 @@ public class WorkflowRunner(
         }
     }
 }
+
