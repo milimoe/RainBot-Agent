@@ -18,7 +18,20 @@ public sealed partial class ParsedContentSender(
         IReadOnlyList<PreprocessedText> results, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (context.Current.SkipSideEffects) return;
+        // 含链接的新消息才触发卡片，引用/回溯结果仍原样返回给模型。
+        // 合并批次时按原消息分组，避免卡片挂到后续无链接的追问消息上。
+        foreach (var group in results.Where(result => result.AllowDirectSend)
+            .GroupBy(result => result.DirectSendMessage ?? context.Current))
+        {
+            await SendForMessageAsync(context with { Current = group.Key }, processor, group.ToList(), cancellationToken);
+        }
+    }
+
+    private async Task SendForMessageAsync(MessagePreprocessContext context, string processor,
+        IReadOnlyList<PreprocessedText> results, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (context.Current.SkipSideEffects || context.Current.IsFromBot) return;
         var successful = results.Where(result => result.Status == "ok" && !string.IsNullOrWhiteSpace(result.Text))
             .DistinctBy(result => result.Source).Take(4).ToList();
         try
@@ -156,3 +169,4 @@ public sealed partial class ParsedContentSender(
 
     [GeneratedRegex(@"[\\`*_{}\[\]()#+.!|~-]", RegexOptions.None, 100)] private static partial Regex MarkdownCharacters();
 }
+

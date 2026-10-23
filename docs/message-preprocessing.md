@@ -36,7 +36,7 @@ builder.Services.AddSingleton<IMessagePreprocessor, AttachmentTextPreprocessor>(
 
 默认单个解析器等待预算 10 秒，可通过 `Timeout` 覆盖。超时产生 `timeout`，异常产生 `unavailable`，不会影响其他解析器及正常回复；内部异常只写日志，不进入 LLM。管线停止等待不响应取消的解析任务，但无法强制结束它，所以实现必须传递并尊重取消令牌；外部取消会向上传播。
 
-解析器也可通过 `SendParsedContent` 属性启用直接发送资料（接口默认 `false`）。管线在该解析器完成后调用 `ParsedContentSender`，无需等待其他解析器或 LLM：将该解析器本轮成功结果去重合并为一条发送任务，由现有 `SendQueue` → 平台发送器调用 QQBot 接口。Markdown 模式下包含标题、引用正文和原链接，普通模式发送纯文本；总发送正文最多 1800 字符，超出标记截断，不受 LLM 行数/字符限制。任务固定本条 Markdown 格式，保留频控、重试、多实例、私聊及试聊拦截规则。全失败、空文本和 `SkipSideEffects` 回放不额外发送；发送入队异常不影响资料注入和正常回复。直接资料不追加到 LLM 内存历史，WebUI 仍可回看发送消息。
+解析器也可通过 `SendParsedContent` 属性启用直接发送资料（接口默认 `false`）。管线在该解析器完成后调用 `ParsedContentSender`，无需等待其他解析器或 LLM：按本批实际来源消息分组，将每条来源消息的成功结果去重合并为一条发送任务，由现有 `SendQueue` → 平台发送器调用 QQBot 接口。Markdown 模式下包含标题、引用正文和原链接，普通模式发送纯文本；总发送正文最多 1800 字符，超出标记截断，不受 LLM 行数/字符限制。任务固定本条 Markdown 格式，保留频控、重试、多实例、私聊及试聊拦截规则。全失败、空文本和 `SkipSideEffects` 回放不额外发送；发送入队异常不影响资料注入和正常回复。直接资料不追加到 LLM 内存历史，WebUI 仍可回看发送消息。
 
 现有 `LinkPrefetcher` 已实现该接口，仍保留 `PrefetchAsync` 及提取方法，继续复用 `Rain.Page` 开关、链接数量、缓存、安全读取边界、引用与最近链接回溯、读取预算。视频资料明确标注仅为元信息。`TriggerContext.LinkResults` 保留用于兼容既有直接组装调用，正常消息处理走通用结果，不重复注入。
 
@@ -45,3 +45,12 @@ builder.Services.AddSingleton<IMessagePreprocessor, AttachmentTextPreprocessor>(
 已有扩展：[GitHub 链接解析](github-reader.md)，支持公开仓库、Issue、PR、Commit、Release 和文本文件。
 
 `PreprocessedText.DisplayCard` 可提供结构化 `ParsedContentCard`，让直接发送使用专用布局而不展示全部模型正文。卡片包含类型、标题、简介、标签和值、可选封面；B 站使用视频图文布局，GitHub 使用无图元信息布局。未提供卡片的扩展仍沿用通用文本布局。`DisplayCard` 不参与 JSON 序列化，不改变 LLM 的 `Text` 输入；合法的公开 B 站封面和来源 URL 会保留完整哈希，正文仍经过输出过滤。
+
+
+## 链接卡片只跟随原始链接消息
+
+B 站和 GitHub 的自动卡片只由本批新消息自身携带的链接触发（正文中的链接或 QQ 分享卡片的目标地址）。引用正文、被引用分享卡片的地址和历史回溯仍可解析为模型资料，但不会直接发卡片；B 站风控兜底提示也遵循同样规则。发链接后再单独追问、或引用链接回复，都不会重复出卡。
+
+解析结果通过 `AllowDirectSend` 标记直发资格，`DirectSendMessage` 指向实际包含链接的原始消息；两者不进入模型文本或 JSON。合并批次按来源消息发送，使用该消息的回程规则，不把卡片关联到最后一条无链接的追问。短链跳转保留原始请求地址以判定来源，来源标记不写入共享页面缓存。主动重新发送链接仍可出卡，不设置跨消息的全局 URL 去重。
+
+其他扩展默认维持原有直发行为；扩展若读取引用或回溯来源，应设置 `AllowDirectSend = false`，需要按本批其他消息发送时指定 `DirectSendMessage`。

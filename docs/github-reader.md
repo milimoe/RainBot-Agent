@@ -30,7 +30,7 @@
 
 五项均可在 WebUI「GitHub 解析」或 `/admin set GitHub.<键> <值>` 热修改。实际限制分别为 1–10 秒、1–4 条、200–4000 字符；配置键使用以上大小写。`Page.PrefetchEnabled` 只控制 B 站，GitHub 由自己的 `Enabled` 控制。GitHub 读取复用 `Page.RequestTimeoutSeconds`、`Page.CacheMinutes`、`Page.MaxResponseKb` 与启动期 DNS 选项；失败按 URL 缓存 60 秒，共享缓存上限 512 项、网络读取并发上限 4。`open_page` 输出仍遵循它自己的摘要长度限制。
 
-`SendParsedContent` 默认开启：自动预处理成功后，直接向触发会话发送一条本轮 GitHub 资料消息，包含标题、正文片段和来源；多链接合并，失败项不发送，不经过 LLM。`Rain.MarkdownReply=true` 时使用标题、引用正文和原链接排版，否则使用纯文本；发送正文总上限 1800 字符，超出标记截断。关闭本项只关闭额外资料消息，资料仍注入本轮 LLM 上下文，LLM 回复继续保留。冷却中或未命中插嘴概率时仍自动解析并直接发送，只有 LLM 回复受触发判定限制；`open_page` 工具调用不额外发送资料消息。
+`SendParsedContent` 默认开启：自动预处理成功后，只对本批新消息自身携带的链接发送 GitHub 卡片；按实际来源消息合并多链接并关联原消息，失败项不发送，不经过 LLM。引用正文中的链接仍可解析给模型，但引用回复不会重复出卡。`Rain.MarkdownReply=true` 时使用标题、引用正文和原链接排版，否则使用纯文本；发送正文总上限 1800 字符，超出标记截断。关闭本项只关闭额外资料消息，资料仍注入本轮 LLM 上下文，LLM 回复继续保留。冷却中或未命中插嘴概率时，本批新消息中的链接仍自动解析并出卡，只有 LLM 回复受触发判定限制；`open_page` 工具调用不额外发送资料消息。
 
 直接发送现使用独立元信息卡片：仓库展示名称、简介、语言、Star/Fork、Issue/PR 数量、默认分支、许可证、状态和北京时间更新日期；其他资源展示类型、标题及对应作者/状态/统计等元信息。发送卡片不含图片、README、Issue/PR 正文、发布说明或文件源码；这些实际解析文本仍提供给 LLM。卡片数据保存在 `DisplayCard`，不参与工具 JSON 序列化，与模型文本分开。
 
@@ -41,3 +41,4 @@
 如果本地代理的 Fake-IP DNS 把 `api.github.com` 解析为 `198.18.x.x` 等保留地址，读取会被安全检查拒绝。可在实际运行目录的 appsettings 中设置 `Rain.Page.UsePublicDns=true`（或环境变量 `Rain__Page__UsePublicDns=true`），重启生效。该选项通过现有固定公网 DoH 解析取得真实 IP，继续验证公网地址和 TLS，不放行代理假 IP；正常服务器无需开启。
 
 API 格式依据 GitHub 官方文档：[仓库](https://docs.github.com/en/rest/repos/repos)、[Contents/README](https://docs.github.com/en/rest/repos/contents)、[Issue](https://docs.github.com/en/rest/issues/issues)、[PR](https://docs.github.com/en/rest/pulls/pulls)、[Commit](https://docs.github.com/en/rest/commits/commits)、[Release](https://docs.github.com/en/rest/releases/releases)。
+
