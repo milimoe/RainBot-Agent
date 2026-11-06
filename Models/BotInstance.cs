@@ -37,6 +37,12 @@ public class BotInstance
     public string PersonaPath { get; set; } = "";
 
     /// <summary>
+    /// 机器人昵称（原始配置串）：用空格 / 逗号 / 分号（全角半角皆可）分隔多个昵称。
+    /// 群消息里任一昵称「独立完整」出现即视为 @ 机器人，无需真正 @。
+    /// </summary>
+    public string Nicknames { get; set; } = "";
+
+    /// <summary>
     /// 本实例的管理员列表（可用全部 /admin 指令）。
     /// ID 命名空间随平台：QQ 官方 = 群内 openid（同一 QQ 用户在不同机器人下 openid 不同），
     /// OneBot11 = QQ 号。旧版全局 AdminOpenIds 仍作为兜底兼容。

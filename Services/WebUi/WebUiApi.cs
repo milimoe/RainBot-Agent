@@ -585,6 +585,7 @@ public static class WebUiApi
                     b.Paused,
                     b.PersonaPath,
                     b.PersonaName,
+                    b.Nicknames,
                     b.Admins,
                     qq = b.Qq,
                     oneBot = new
@@ -789,6 +790,7 @@ public static class WebUiApi
             Paused = obj["paused"]?.GetValue<bool>() ?? false,
             PersonaPath = obj["personaPath"]?.GetValue<string>() ?? "",
             PersonaName = obj["personaName"]?.GetValue<string>() ?? "",
+            Nicknames = obj["nicknames"]?.GetValue<string>() ?? "",
             Admins = obj["admins"] is JsonArray admins
                 ? admins.Select(a => a?.GetValue<string>()?.Trim() ?? "").Where(a => a.Length > 0).ToList()
                 : []

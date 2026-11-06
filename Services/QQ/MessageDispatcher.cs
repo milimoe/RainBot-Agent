@@ -171,8 +171,10 @@ public class MessageDispatcher
         _dedupeFull.Mark(group.Id);
         _fullSeen.Mark(group.Id);
 
-        // 全量消息：mentions（is_you/openid 匹配，权威）→ content 标签兜底，精确判断是否 @ 机器人
-        bool isAt = await _botIdentity.IsAtBotAsync(group.Content, group.Mentions);
+        // 全量消息：mentions（is_you/openid 匹配，权威）→ content 标签兜底，精确判断是否 @ 机器人；
+        // 昵称独立完整出现时同样视为 @（无需真正 @）。机器人自己的回显由下面的 !isFromBot 兜住。
+        bool isAt = await _botIdentity.IsAtBotAsync(group.Content, group.Mentions)
+            || BotNicknameMatcher.Matches(group.Content, _store.Get(botId)?.Nicknames);
         string senderOpenId = ResolveSenderOpenId(group.Author);
         QuoteParser.Result quote = QuoteParser.Parse(group.Scene, group.MsgElements);
         // 机器人自己的消息（全量模式回显，author.bot=true）：暖群判定"最后一条是自己"的依据

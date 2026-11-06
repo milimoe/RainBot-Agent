@@ -259,6 +259,7 @@ public class BotInstanceStore
                     instance.Paused = dto.Paused;
                     instance.PersonaName = dto.PersonaName ?? "";
                     instance.PersonaPath = dto.PersonaPath ?? "";
+                    instance.Nicknames = dto.Nicknames ?? "";
                     instance.Admins = dto.Admins ?? [];
                     instance.Qq = dto.Qq ?? new QqOfficialConfig();
                     instance.OneBot = dto.OneBot ?? new OneBotConfig();
@@ -311,6 +312,7 @@ public class BotInstanceStore
         Paused = instance.Paused,
         PersonaName = instance.PersonaName,
         PersonaPath = instance.PersonaPath,
+        Nicknames = instance.Nicknames,
         Admins = instance.Admins,
         Qq = instance.Qq,
         OneBot = instance.OneBot
@@ -353,6 +355,7 @@ public class BotInstanceStore
         public bool Paused { get; set; }
         public string? PersonaName { get; set; }
         public string? PersonaPath { get; set; }
+        public string? Nicknames { get; set; }
         public List<string>? Admins { get; set; }
         public QqOfficialConfig? Qq { get; set; }
         public OneBotConfig? OneBot { get; set; }

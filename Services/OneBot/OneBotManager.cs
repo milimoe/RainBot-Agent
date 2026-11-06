@@ -177,9 +177,11 @@ public class OneBotManager(
         dedupe.Mark(msgId);
 
         string selfQq = string.IsNullOrWhiteSpace(instance.OneBot.SelfQq) ? evt.SelfId.ToString() : instance.OneBot.SelfQq;
-        bool isAt = OneBotMessage.IsAt(evt.Message, selfQq);
         List<string> imageUrls = OneBotMessage.ExtractImageUrls(evt.Message);
         string content = OneBotMessage.ExtractText(evt.Message);
+        // 昵称只匹配提取出的纯文本（不掺 CQ 码 / 图片直链），独立完整出现即视为 @
+        bool isAt = OneBotMessage.IsAt(evt.Message, selfQq)
+            || BotNicknameMatcher.Matches(content, instance.Nicknames);
         // 纯图片消息保持空文本（走 [图片] 占位 + 多模态识图）；其余无文本消息退回原始 CQ 码文本
         if (content.Length == 0 && imageUrls.Count == 0)
         {

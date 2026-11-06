@@ -18,6 +18,7 @@ function emptyForm() {
     paused: false,
     personaName: '',
     personaPath: '',
+    nicknames: '',
     admins: [],
     qq: { appId: '', secret: '', useSandbox: false, selfOpenId: '' },
     oneBot: {
@@ -41,6 +42,7 @@ function toForm(b) {
     paused: b.paused === true,
     personaName: b.personaName === 'default' ? '' : b.personaName || '',
     personaPath: b.personaPath || '',
+    nicknames: b.nicknames || '',
     admins: Array.isArray(b.admins) ? b.admins : [],
     qq: { ...base.qq, ...(b.qq || {}) },
     oneBot: {
@@ -379,6 +381,23 @@ export default function BotsPage() {
                   <div className="py-1">
                     <Toggle checked={form.enabled} onChange={(v) => saved('enabled', v)} />
                   </div>
+                </Field>
+                <Field
+                  label="机器人昵称"
+                  wide
+                  hint={
+                    <>
+                      用空格、逗号、分号分隔多个昵称（全角半角皆可）；消息里任一昵称独立完整出现即视为 @，无需真正 @。<br />
+                      例：填「小雨，雨」→「小雨，帮我查一下……」「雨 早上好！」均匹配；「雨伞」「下雨了」不会误匹配。QQ 官方实例需开启「接收所有消息」，保存后生效。
+                    </>
+                  }
+                >
+                  <input
+                    className={inputCls}
+                    value={form.nicknames}
+                    onChange={(e) => saved('nicknames', e.target.value)}
+                    placeholder="如：小雨，雨"
+                  />
                 </Field>
                 <Field label="暂停" hint="保持连接并记录消息，暂停回复、随机互动和主动发言。">
                   <div className="py-1"><Toggle checked={form.paused} onChange={async (paused) => {
