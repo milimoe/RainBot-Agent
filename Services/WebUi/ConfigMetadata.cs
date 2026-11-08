@@ -35,9 +35,20 @@ public static class ConfigMetadata
         new("Llm.TimeoutSeconds", "LLM", "请求超时（秒）", "单次 LLM 请求超时", "number", 1, 600),
         new("Llm.MaxToolRounds", "LLM", "工具最大轮次", "ReAct 工具调用最大轮次（防死循环；触顶后自动补一次禁用工具的收口请求）", "number", 1, 20),
         new("Llm.ToolRoundMaxTokens", "LLM", "工具轮输出上限", "工具轮 max_tokens，需容纳工具调用参数 JSON；过小会把多参数调用截断", "number", 64, 8192),
-        new("Llm.MaxOutputLines", "LLM", "输出最大行数", "超出截断（铁律：最多 2 行）", "number", 1, 20),
+        new("Llm.MaxOutputLines", "LLM", "单条输出最大行数", "每条消息最多行数，超出截断；多段回复时逐段生效", "number", 1, 20),
         new("Llm.MaxOutputChars", "LLM", "输出最大字符", "超出截断", "number", 1, 4000),
         new("Llm.EnableVision", "LLM", "视觉识图", "开启后带图消息会把图片内联进多模态请求（DeepSeek 视觉格式，支持 JPEG/PNG/GIF/WebP，单图 ≤8MB）；模型不支持图片时关闭，否则该轮请求会失败", "bool"),
+
+        // ---------- 分步答复 ----------
+        new("MultiReply.Enabled", "分步答复", "允许多段回复", "总开关：关闭后系统剥离分隔符强制单条消息，人设里写「只回一次」不会影响此开关；开启时由模型自行决定是否分段", "bool"),
+        new("MultiReply.MaxSegments", "分步答复", "单次触发段数上限", "含工具轮中间发言与收口段；超出的段合并进最后一段", "number", 1, 10),
+        new("MultiReply.SegmentGapSeconds", "分步答复", "段间隔（秒）", "相邻两段之间的发送间隔，0 = 连续发送", "number", 0, 60),
+        new("MultiReply.MaxTotalChars", "分步答复", "单次触发总字数上限", "所有段合计字符硬上限，超出后合并并按单段上限截断", "number", 50, 4000),
+
+        // ---------- 子代理 ----------
+        new("SubAgent.Enabled", "子代理", "启用调研子代理", "delegate_research 工具的总开关；关闭后工具仍在清单中但直接返回禁用提示（不破坏前缀缓存）", "bool"),
+        new("SubAgent.MaxRounds", "子代理", "子代理工具轮次", "内部最多搜索/读页轮次，触顶后收口输出摘要", "number", 1, 20),
+        new("SubAgent.MaxResultChars", "子代理", "摘要字符上限", "回注主链路的调研摘要长度", "number", 100, 4000),
 
         new("PromptPath", "通用", "默认提示词路径", "默认人设的提示词配置 JSON，保存后热重载", "text"),
         new("Profile.DailyUpdateLimit", "画像", "每日画像更新配额", "每群每用户每日更新上限；0 禁止普通对话更新，暖群不受限", "number", 0, 100),
@@ -118,6 +129,6 @@ public static class ConfigMetadata
     public static ConfigMeta? Find(string key)
         => All.FirstOrDefault(m => string.Equals(m.Key, key, StringComparison.OrdinalIgnoreCase));
 
-    public static IReadOnlyList<string> Sections => ["LLM", "画像", "触发", "上下文", "风控", "随机互动", "搜索", "通用"];
+    public static IReadOnlyList<string> Sections => ["LLM", "分步答复", "子代理", "画像", "触发", "上下文", "风控", "随机互动", "搜索", "通用"];
 }
 

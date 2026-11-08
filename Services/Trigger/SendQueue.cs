@@ -102,7 +102,10 @@ public class SendQueue : BackgroundService
                 {
                     await Task.Delay(TimeSpan.FromSeconds(task.DelaySeconds), stoppingToken);
                 }
-                SendOutcome outcome = await TrySendAsync(task, stoppingToken);
+                // 段组（多段回复）整体按序发送；单段走原路径。两者共用同一套重试/统计分支。
+                SendOutcome outcome = task.Segments is { Count: > 0 }
+                    ? await TrySendGroupAsync(task, stoppingToken)
+                    : await TrySendAsync(task, stoppingToken);
                 switch (outcome)
                 {
                     case SendOutcome.Sent:
@@ -156,7 +159,45 @@ public class SendQueue : BackgroundService
         }
     }
 
-    private async Task<SendOutcome> TrySendAsync(SendTask task, CancellationToken ct)
+    private Task<SendOutcome> TrySendAsync(SendTask task, CancellationToken ct)
+        => SendContentAsync(task, task.Content, task.MsgId, task.AtUserId, ct);
+
+    /// <summary>
+    /// 段组发送：一条队列项内部按序发完所有段，避免限流重入队尾时把同一触发的分段打散乱序。
+    /// 平台失败只从失败的那一段重试，已成功的段不会重复发送；
+    /// 首段沿用被动 msg_id 与 @，其余段走主动消息。
+    /// </summary>
+    private async Task<SendOutcome> TrySendGroupAsync(SendTask task, CancellationToken ct)
+    {
+        IReadOnlyList<string> segments = task.Segments!;
+        for (int i = task.SegmentIndex; i < segments.Count; i++)
+        {
+            if (i > task.SegmentIndex && task.SegmentGapSeconds > 0)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(task.SegmentGapSeconds), ct);
+            }
+            string? msgId = i == 0 ? task.MsgId : null;
+            string? atUserId = i == 0 ? task.AtUserId : null;
+            SendOutcome one = await SendContentAsync(task, segments[i], msgId, atUserId, ct);
+            if (one == SendOutcome.Failed)
+            {
+                // 单段不可重试失败（如平台 429/参数类）：跳过继续，不拖累后续段
+                task.SegmentIndex = i + 1;
+                continue;
+            }
+            if (one != SendOutcome.Sent)
+            {
+                // 限流或临时故障：整组重入队，下次从这一段继续，保证段序
+                task.SegmentIndex = i;
+                return one;
+            }
+            task.SegmentIndex = i + 1;
+        }
+        return SendOutcome.Sent;
+    }
+
+    /// <summary>发送一条消息（单段或段组中的一段）；content/msgId/atUserId 由调用方指定。</summary>
+    private async Task<SendOutcome> SendContentAsync(SendTask task, string content, string? msgId, string? atUserId, CancellationToken ct)
     {
         if (_bots?.Get(task.BotId.Length > 0 ? task.BotId : BotKeys.GetBotId(task.GroupOpenId))?.Paused == true
             || task.ContextVersion is long version && version != _groupStates.GetOrCreate(task.GroupOpenId).ContextVersion)
@@ -178,13 +219,13 @@ public class SendQueue : BackgroundService
         if (_logger.IsEnabled(LogLevel.Debug))
         {
             _logger.LogDebug("发送队列：group={Group} sim={Sim} markdown={Md} msgId={MsgId} content={Content}",
-                task.GroupOpenId, _webUi != null && _webUi.IsSimulationEnabled(task.GroupOpenId), _config.Config.MarkdownReply, task.MsgId, task.Content);
+                task.GroupOpenId, _webUi != null && _webUi.IsSimulationEnabled(task.GroupOpenId), _config.Config.MarkdownReply, msgId, content);
         }
 
         // 试聊（仿真）模式：不发送到平台，只推送到 WebUI 并落库供聊天页回看
         if (_webUi != null && _webUi.IsSimulationEnabled(task.GroupOpenId))
         {
-            await _webUi.PublishBotMessageAsync(task.GroupOpenId, task.Content);
+            await _webUi.PublishBotMessageAsync(task.GroupOpenId, content);
             return SendOutcome.Sent;
         }
 
@@ -196,16 +237,16 @@ public class SendQueue : BackgroundService
         {
             BotId = botId,
             RawGroupId = BotKeys.GetRawPeerId(task.GroupOpenId),
-            Content = task.Content,
+            Content = content,
             Markdown = task.Markdown ?? _config.Config.MarkdownReply,
-            ReplyMsgId = task.MsgId,
-            AtUserId = isPrivate ? null : task.AtUserId,
+            ReplyMsgId = msgId,
+            AtUserId = isPrivate ? null : atUserId,
             ImageUrl = task.ImageUrl,
             IsPrivate = isPrivate,
             MsgSeq = Interlocked.Increment(ref _msgSeq)
         };
         SendResult result;
-        _history?.RegisterOutgoing(task.GroupOpenId, task.Content);
+        _history?.RegisterOutgoing(task.GroupOpenId, content);
         try
         {
             result = await _senderRouter.SendAsync(request);
@@ -221,7 +262,7 @@ public class SendQueue : BackgroundService
         _botStatus.ReceivedMessages++; // 复用计数仅作统计占位，不参与限流
         if (result.Success && _webUi != null)
         {
-            await _webUi.PublishBotMessageAsync(task.GroupOpenId, task.Content);
+            await _webUi.PublishBotMessageAsync(task.GroupOpenId, content);
         }
         if (result.Success)
         {
@@ -242,6 +283,19 @@ public class SendTask
     public required string GroupOpenId { get; init; }
 
     public required string Content { get; init; }
+
+    /// <summary>
+    /// 多段回复：按序发送的内容列表（已过输出风控）。非空时本任务是一条「段组」，
+    /// 内部连续发送，遇失败整体重入队并从 <see cref="SegmentIndex"/> 继续，保证段序不乱、不重复发送。
+    /// </summary>
+    public IReadOnlyList<string>? Segments { get; init; }
+
+    /// <summary>段组内相邻两段的发送间隔（秒，0 = 连续）</summary>
+    public int SegmentGapSeconds { get; init; }
+
+    /// <summary>段组已成功发送到的下标（重试进度，由队列消费者维护）</summary>
+    public int SegmentIndex { get; set; }
+
     /// <summary>指定本条消息格式；为空时沿用全局 MarkdownReply。</summary>
     public bool? Markdown { get; init; }
     /// <summary>纯回复正文；调试推理、统计等仅发送给用户，不回流到模型。</summary>

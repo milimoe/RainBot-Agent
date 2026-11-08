@@ -2,6 +2,7 @@ using RainBot.Models;
 using RainBot.Services.Context;
 using RainBot.Services.Config;
 using RainBot.Services.Tools;
+using RainBot.Services.Workflow;
 
 namespace RainBot.Services.Llm;
 
@@ -32,6 +33,7 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
         string? lastReasoning = null; // 最后一次非空思维链（调试模式记录用）
         int toolCallCount = 0;
         bool awaitingFinalAnswer = false; // true = 上一轮还在调工具，结果尚未被消化
+        List<string> interim = []; // 工具轮顺带写出的阶段性发言（多段回复时「边搜边说」）
 
         // 轮次语义：round 0..maxRounds-1 为「工具轮」（最多 maxRounds 次工具调用决策），
         // 触顶后另有一次收口轮（不计入工具轮次）。
@@ -70,6 +72,15 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
             if (result.Message.ToolCalls is { Count: > 0 })
             {
                 toolCallCount += result.Message.ToolCalls.Count;
+                // 工具轮同时给出自然语言时收作阶段性发言（如「我去查一下」）——
+                // 这段内容本来就会被生成，只是过去只进上下文不发给群友，零额外 LLM 成本。
+                string? spoken = result.Message.Content?.Trim();
+                if (!string.IsNullOrWhiteSpace(spoken)
+                    && !TryExtractEmptyMarker(spoken)
+                    && spoken.Length <= 200)
+                {
+                    interim.Add(ReplySegment.Strip(spoken));
+                }
                 // 追加助手工具调用消息
                 working.Add(new ChatMessage
                 {
@@ -140,7 +151,7 @@ public class ReActLoop(RuntimeConfig config, DeepSeekClient deepSeekClient, Tool
         }
 
         RecordIfDebug(context, lastReasoning, lastFinishReason, lastUsage);
-        return new ReActResult { Text = lastText, Reasoning = lastReasoning, Usage = lastUsage, ToolCallCount = toolCallCount, Failed = false };
+        return new ReActResult { Text = lastText, Reasoning = lastReasoning, Usage = lastUsage, ToolCallCount = toolCallCount, Failed = false, Interim = interim };
     }
 
     /// <summary>
@@ -194,4 +205,11 @@ public class ReActResult
     /// <summary>本轮工作流实际执行的工具调用次数（0 = 未调用工具）</summary>
     public int ToolCallCount { get; init; }
     public bool Failed { get; init; }
+
+    /// <summary>
+    /// 工具轮里模型顺带写出的阶段性发言（如「我去查一下」「第一个查到了，再看另一个」）。
+    /// 原本只进 assistant 消息、最终被丢弃；多段回复开启时作为前置分段发送，实现「边搜边说」。
+    /// 不额外调用 LLM。配置关闭或暖群/插嘴时由 ReplySegmentPlanner 忽略。
+    /// </summary>
+    public IReadOnlyList<string> Interim { get; init; } = [];
 }

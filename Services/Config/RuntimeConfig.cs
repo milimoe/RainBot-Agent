@@ -261,6 +261,13 @@ public class RuntimeConfig
                 case "Search.TimeoutSeconds": _config.Search.TimeoutSeconds = ParseInt(value, nameof(_config.Search.TimeoutSeconds)); return true;
                 case "Search.MaxResults": _config.Search.MaxResults = ParseInt(value, nameof(_config.Search.MaxResults)); return true;
                 case "MarkdownReply": _config.MarkdownReply = ParseBool(value, nameof(_config.MarkdownReply)); return true;
+                case "MultiReply.Enabled": _config.MultiReply.Enabled = ParseBool(value, nameof(_config.MultiReply.Enabled)); return true;
+                case "MultiReply.MaxSegments": _config.MultiReply.MaxSegments = ParseInt(value, nameof(_config.MultiReply.MaxSegments)); return true;
+                case "MultiReply.SegmentGapSeconds": _config.MultiReply.SegmentGapSeconds = ParseNonNegativeInt(value, nameof(_config.MultiReply.SegmentGapSeconds)); return true;
+                case "MultiReply.MaxTotalChars": _config.MultiReply.MaxTotalChars = ParseInt(value, nameof(_config.MultiReply.MaxTotalChars)); return true;
+                case "SubAgent.Enabled": _config.SubAgent.Enabled = ParseBool(value, nameof(_config.SubAgent.Enabled)); return true;
+                case "SubAgent.MaxRounds": _config.SubAgent.MaxRounds = ParseInt(value, nameof(_config.SubAgent.MaxRounds)); return true;
+                case "SubAgent.MaxResultChars": _config.SubAgent.MaxResultChars = ParseInt(value, nameof(_config.SubAgent.MaxResultChars)); return true;
                 default:
                     error = $"未知参数：{key}。可用 /admin list 查看全部参数。";
                     return false;
@@ -375,6 +382,8 @@ public class RuntimeConfig
         "PromptPath", "Profile.DailyUpdateLimit", "Profile.ActiveWindowHours", "Trigger.BacklogMaxAgeSeconds",
         "Profile.AutoRefreshEnabled", "Profile.AutoRefreshMinutes", "Profile.MinActivityMessages", "Profile.RefreshAfterHours",
         "PersonaPath", "SayNoPath", "PublicBaseUrl", "DebugMode", "DebugShowReasoning", "MarkdownReply",
+        "MultiReply.Enabled", "MultiReply.MaxSegments", "MultiReply.SegmentGapSeconds", "MultiReply.MaxTotalChars",
+        "SubAgent.Enabled", "SubAgent.MaxRounds", "SubAgent.MaxResultChars",
         "Search.Provider", "Search.SearxngBaseUrl", "Search.TavilyApiKey", "Search.TavilyDailyLimit", "Search.TimeoutSeconds", "Search.MaxResults"
     ];
 }

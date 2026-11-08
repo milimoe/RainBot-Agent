@@ -81,6 +81,48 @@ public class RainConfig
 
     /// <summary>公开 GitHub 链接自动解析，独立于 B 站预取开关。</summary>
     public GitHubConfig GitHub { get; set; } = new();
+
+    /// <summary>多段回复：一次触发拆成多条消息发送（模型自决分隔符 + 系统硬上限兜底）。</summary>
+    public MultiReplyConfig MultiReply { get; set; } = new();
+
+    /// <summary>调研子代理（delegate_research 工具）配置。</summary>
+    public SubAgentConfig SubAgent { get; set; } = new();
+}
+
+/// <summary>
+/// 分步答复配置。开关是唯一权威：Enabled=false 时系统剥离分隔符强制单段，
+/// 人设/prompt.json 里写「只回一次」不会覆盖系统能力，只影响模型是否选择输出分隔符。
+/// 能力说明固定写在 Block A 末尾，不随本配置变化，避免破坏 DeepSeek 前缀缓存。
+/// </summary>
+public class MultiReplyConfig
+{
+    /// <summary>是否允许多段回复（false = 强制单段，剥离所有分隔符并忽略工具轮中间发言）</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>单次触发最多发送几条消息（含工具轮中间发言与收口段）；超出的段合并进最后一段。</summary>
+    public int MaxSegments { get; set; } = 3;
+
+    /// <summary>相邻两段之间的发送间隔（秒），0 = 连续发送。</summary>
+    public int SegmentGapSeconds { get; set; } = 2;
+
+    /// <summary>单次触发所有段合计的字符硬上限；超出的段合并进最后一段后按单段上限截断。</summary>
+    public int MaxTotalChars { get; set; } = 400;
+}
+
+/// <summary>
+/// 调研子代理配置。工具白名单固定为 web_search / open_page（代码常量，不可热改），
+/// 工具注册始终存在，Enabled=false 时执行器直接返回禁用提示，避免 Block B 前缀随配置变动。
+/// </summary>
+public class SubAgentConfig
+{
+    /// <summary>是否启用 delegate_research 工具</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>子代理内部最多工具轮次（防死循环，触顶后收口输出摘要）</summary>
+    public int MaxRounds { get; set; } = 5;
+
+    /// <summary>回注主链路的摘要最大字符数</summary>
+    public int MaxResultChars { get; set; } = 1200;
 }
 
 public class GitHubConfig

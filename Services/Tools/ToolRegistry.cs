@@ -61,6 +61,11 @@ public class ToolRegistry
         Register("admin_unmute_group",
             "解除当前群静默（仅管理员）。",
             Parameters());
+
+        // 追加在 builtin 末尾：注册顺序即 Block B 输出顺序，勿随意调整到中间
+        Register("delegate_research",
+            "把需要反复检索、多个关键词交叉核对或读多个页面的复杂调研任务派给子代理。子代理只能使用 web_search 与 open_page，返回一段精简事实摘要；简单问题直接自己搜，不要派单。",
+            Parameters(("task", "一句话说明要查证的事实或问题", true, "string")));
     }
 
     /// <summary>

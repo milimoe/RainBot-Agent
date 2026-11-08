@@ -17,7 +17,9 @@
 | 上下文缓存 | Block A-F 固定顺序，历史平时尾部追加；76.8k 软水位正常压缩至约 38.4k 原文，153.6k 文本输入水位兜底 |
 | 群友画像 | L0 全量画像存库不进上下文；L1 锚点 Top 5 常驻（<20 tokens）；L2 触发式召回进尾部块，下轮即弃 |
 | ReAct 工具 | `web_search`（bing / tavily / duckduckgo / searxng）、`get_user_profile`、`update_user_profile`（普通对话受每日配额限制，暖群不受限）、`at_user`（当前群活跃成员，可按昵称/短标识/完整标识选择）、管理员工具；工具轮次上限防死循环，触顶自动补一次禁用工具的收口请求 |
-| 风控 | 输入（广告/涉政/引流不回应）、输出（openid 泄露替换、≤2 行截断）、平台频控（15 qpm 留余量）、成本监控（缓存命中率 <60% 告警） |
+| 分步答复 | 一次触发可拆成多条消息：模型输出 `<seg/>` 自决分段，系统按 `MultiReply.MaxSegments`（默认 3）/ `MaxTotalChars`（默认 400）硬兜底（超出合并/截断）。工具轮里模型顺带写的话会作为前置段发出，实现「边搜边说」且**不额外调用 LLM**。段组内部按序发送、段间隔可配、首段带被动 `msg_id`、只有收口段进模型历史；暖群与随机插嘴强制单段。**人设里写「只回一次」不会覆盖此能力**：`MultiReply.Enabled` 是唯一权威开关，系统能力段固定排在人设与铁律之后且声明优先，配置关闭时直接剥离分隔符强制单段 |
+| 调研子代理 | `delegate_research` 把需要反复检索/读多个页面的子任务交给独立 LLM 会话，白名单仅 `web_search` / `open_page`（执行前二次校验，画像写入 / @ / 管理员工具一律不可达），返回压缩摘要作为 tool result 回主链路；全局 2 并发 + 独立轮次上限 + 触顶收口。独立 system/user 消息，不插入主链路 `messages[0..3]`、不写 Block C/D，因此不破坏前缀缓存 |
+| 风控 | 输入（广告/涉政/引流不回应）、输出（openid 泄露替换、单条消息 ≤2 行截断，逐段生效）、平台频控（15 qpm 留余量）、成本监控（缓存命中率 <60% 告警） |
 | 随机互动 | 移植原版 RainBOT：随机反驳是/不、随机复读（延迟防刷屏）、随机OSM（梗图）、反向艾特、随机叫哥；纯规则概率触发不耗 Token，一次消息最多命中一个（防刷屏） |
 | 人设系统 | `Persona/persona.md` 随时改写，保存即热重载，无需重启 |
 
@@ -108,6 +110,13 @@ npm run build    # 产物输出到 wwwroot/webui；Release 发布时自动执行
 | `Llm.Model` | deepseek-flash | 单一模型名（`deepseek-v4-flash` 为官方已退役别名，仍可用但建议改新名） |
 | `Llm.Temperature` / `ToolTemperature` | 0.9 / 0.2 | 主温度（对话与收口轮，保人设）；工具链中段降温（稳工具选择与参数） |
 | `Llm.ToolRoundMaxTokens` | 4096 | 工具轮 `max_tokens`：需容纳工具调用参数 JSON，过小会截断多参数调用；**推理型模型的思维链计入输出 token**，过小会把预算耗在思考上导致 content 为空（finish_reason=length）→ 无内容静默跳过；收口轮共用该值 |
+| `MultiReply.Enabled` | true | **允许多段回复**：唯一权威开关。关闭后系统剥离分隔符强制单段，人设 / `prompt.json` 里写「只回一次」不影响开关；开启时由模型自决是否输出 `<seg/>`（兼容 `<seg>`、`<SEG />`、`【分段】` 等变体） |
+| `MultiReply.MaxSegments` | 3 | 单次触发最多发几条（含工具轮中间发言与收口段）；超出的段合并进最后一段 |
+| `MultiReply.SegmentGapSeconds` | 2 | 相邻两段的发送间隔（秒，0 = 连续） |
+| `MultiReply.MaxTotalChars` | 400 | 所有段合计的字符硬上限，超出截断；每段另受 `Llm.MaxOutputLines` / `MaxOutputChars` 约束 |
+| `SubAgent.Enabled` | true | `delegate_research` 总开关；关闭时工具仍在清单中但返回禁用提示（工具注册不随配置热改变动，保 Block B 前缀稳定） |
+| `SubAgent.MaxRounds` | 5 | 子代理内部最多工具轮次，触顶收口输出摘要 |
+| `SubAgent.MaxResultChars` | 1200 | 回注主链路的摘要长度上限 |
 | `Llm.EnableVision` | true | **视觉识图**：带图消息把图片内联进多模态请求（DeepSeek 视觉格式，支持 JPEG/PNG/GIF/WebP，单图 ≤8MB、单条最多内联 4 张）；模型/端点不支持图片时请关闭，否则该轮请求会失败 |
 | `PersonaPath` | Persona/persona.md | 人设文件（机器人实例可覆盖，留空用全局） |
 | `Fun.EnableReplyYes` / `ReplyYesProbability` | true / 40 | 随机反驳是（消息=「是」时概率反驳「是你的头」） |
@@ -244,15 +253,18 @@ WarmupScheduler（30s 扫描）──▶ 密度/沉默/频控判定 ──▶ �
 
 ```bash
 cd Tests && dotnet test
-# 129 个用例：前缀稳定、水位压缩与降级恢复、冷却/频控/双事件去重（@/全量协调）、输出风控、
+# 533 个用例：前缀稳定、水位压缩与降级恢复、冷却/频控/双事件去重（@/全量协调）、输出风控、
 # ReAct 死循环防护、指令解析、发送队列包体与失败重试（5xx 退避重试/429 不重试/超限丢弃）、
 # MCP 工具桥接（命名/Schema/注册顺序）与工具调用记录器、多机器人实例（键规则/私聊入站/发送统计）、
-# C2C 私聊（入站解析/去重/出站降级）
+# C2C 私聊（入站解析/去重/出站降级）、分步答复（分隔符变体/段数与总字数硬上限/配置权威性/
+# 人设优先级与前缀稳定/段组顺序与历史口径/工具轮中间发言）、子代理白名单与禁用开关
 ```
 
 ## 后续计划（Roadmap）
 
-Roadmap 1-4 已全部完成（C2C 私聊 / 聊天页实例筛选 / 发送失败重试 / MCP 工具调用统计与状态页透出）。新需求将另行规划。
+Roadmap 1-4 已全部完成（C2C 私聊 / 聊天页实例筛选 / 发送失败重试 / MCP 工具调用统计与状态页透出）。
+
+**分步答复与调研子代理（已落地）**：模型用 `<seg/>` 自决分段，`MultiReply.Enabled` 作为唯一权威开关 + 段数/总字数硬上限兜底；`delegate_research` 子代理白名单仅 `web_search` / `open_page`。系统能力段固定排在人设与铁律之后（静态文本，热改配置不破坏前缀缓存），因此人设写「只回一次」只会影响模型的分段倾向，不会禁用能力。尚未做：按触发类型放宽 ReAct 轮次上限、工具并行执行、多步计划（Say → 代理 → Say）的显式编排。
 
 ## 目录结构
 

@@ -110,9 +110,11 @@ public class WorkflowRunner(
             // 「想不出怎么接话题」这类被动兜底话术。
             ReActResult result = await _reactLoop.RunAsync(compose.Messages, toolCtx, ct: ct, compose: compose);
 
-            // 4. 输出风控
-            string? text = _outputFilter.Filter(result.Text);
-            if (text == null)
+            // 4. 输出风控 + 分段规划：模型用分隔符自决，系统做段数/总字数硬上限兜底。
+            //    配置关闭或人设写「只回一次」都不会让配置失效（权威开关在 MultiReply.Enabled）。
+            ReplySegmentPlanner.Plan plan = ReplySegmentPlanner.Build(
+                result, ctx.Type, _config.Config.MultiReply, _outputFilter, _logger);
+            if (plan.Segments.Count == 0)
             {
                 if (string.IsNullOrWhiteSpace(result.Text))
                 {
@@ -127,30 +129,34 @@ public class WorkflowRunner(
             }
             else
             {
-                // 思维显示（需 DebugMode + DebugShowReasoning）：思维链用 ``` 包起来，与回复一起发出
-                string content = ComposeDebugContent(text, result.Reasoning);
-                // 调试模式：输出末尾追加一行「x tokens, x tools」统计（输入+输出 token、工具调用次数）；
-                // Markdown 回复模式下使用块引用格式「> x tokens, x tools」
+                List<string> contents = [.. plan.Segments];
+                int last = contents.Count - 1;
+                // 思维显示（需 DebugMode + DebugShowReasoning）与调试统计行只挂在收口段
+                contents[last] = ComposeDebugContent(contents[last], result.Reasoning);
                 if (_config.Config.DebugMode)
                 {
                     int tokens = (result.Usage?.PromptTokens ?? 0) + (result.Usage?.CompletionTokens ?? 0);
                     string footer = _config.Config.MarkdownReply
                         ? $"> {tokens} tokens, {result.ToolCallCount} tools"
                         : $"{tokens} tokens, {result.ToolCallCount} tools";
-                    content = $"{content}\n{footer}";
+                    contents[last] = $"{contents[last]}\n{footer}";
                 }
                 await _sendQueue.EnqueueAsync(new SendTask
                 {
                     ContextVersion = states.GetOrCreate(ctx.GroupOpenId).ContextVersion,
                     BotId = ctx.BotId,
                     GroupOpenId = ctx.GroupOpenId,
-                    Content = content,
-                    ContextContent = text,
+                    Content = contents[last],
+                    // 多段用一条「段组」任务发送，保证段序与整组重试；单段走原路径
+                    Segments = plan.MultiSegment ? contents : null,
+                    SegmentGapSeconds = plan.MultiSegment ? _config.Config.MultiReply.SegmentGapSeconds : 0,
+                    // 只有收口段回流模型历史，避免自己的多段回显污染 Block E
+                    ContextContent = plan.HistoryText,
                     IsPrivate = ctx.IsPrivate,
                     AtUserId = toolCtx.RequestedAtUserId,
                     MsgId = replyMsgId
                 });
-                if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("{Label} {Group} 触发「{Type}」已回复：{Text}", ctx.IsPrivate ? "私聊" : "群", ctx.GroupOpenId, ctx.Type, text);
+                if (_logger.IsEnabled(LogLevel.Information)) _logger.LogInformation("{Label} {Group} 触发「{Type}」已回复（{Count} 段）：{Text}", ctx.IsPrivate ? "私聊" : "群", ctx.GroupOpenId, ctx.Type, contents.Count, string.Join(" ⇢ ", plan.Segments));
             }
 
             // 5. 成本统计（缓存命中率监控）

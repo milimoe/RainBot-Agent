@@ -6,6 +6,8 @@ import BilibiliLogin from '../components/BilibiliLogin.jsx';
 
 const SECTION_TITLES = {
   LLM: '🤖 LLM 大模型',
+  分步答复: '💬 分步答复',
+  子代理: '🔬 调研子代理',
   触发: '⚡ 触发与节流',
   画像: '👥 群友画像',
   上下文: '🧠 上下文与缓存',

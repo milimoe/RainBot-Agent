@@ -261,7 +261,7 @@ public class BlockComposer(
             sb.AppendLine($"{(ctx.Type == TriggerType.RandomChat ? "最近发言（仅作为插嘴触发点）" : "当前触发消息正文")}：\n{CleanContent(ctx.CurrentContent)}\n[当前触发消息正文结束]");
         if (ctx.PendingMessages.Count > 0)
         {
-            sb.AppendLine(ctx.Type == TriggerType.RandomChat ? "本批群聊发言（属于讨论背景，不是逐条向你提问）：" : "本批待回应消息（请合并成一次自然回复）：");
+            sb.AppendLine(ctx.Type == TriggerType.RandomChat ? "本批群聊发言（属于讨论背景，不是逐条向你提问）：" : "本批待回应消息（通常合并成一次自然回复；确需分开说时用分隔符）：");
             foreach (PendingSpeaker pending in ctx.PendingMessages)
             {
                 sb.AppendLine($"{pending.Nickname ?? "群友"}({UserIdentityResolver.ShortId(pending.OpenId)}): {CleanContent(pending.Content)}");

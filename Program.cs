@@ -97,6 +97,7 @@ builder.Services.AddSingleton<ReasoningRecorder>(); // 调试模式：按群记�
 builder.Services.AddSingleton<ContextRecorder>();
 builder.Services.AddSingleton<VisionImageLoader>(); // 视觉识图：图片下载到内存并转 base64（不落盘、无需清理）
 builder.Services.AddSingleton<ReActLoop>();
+builder.Services.AddSingleton<SubAgentService>(); // 调研子代理（delegate_research 执行器）
 builder.Services.AddSingleton<CacheMonitor>();
 builder.Services.AddSingleton<PromptSettingsService>();
 builder.Services.AddSingleton<PersonaCatalog>();
@@ -194,6 +195,15 @@ using (IServiceScope scope = app.Services.CreateScope())
     _ = scope.ServiceProvider.GetRequiredService<PromptSettingsService>().Current;
     scope.ServiceProvider.GetRequiredService<AdminTools>().Register(registry);
     scope.ServiceProvider.GetRequiredService<PageTools>().Register(registry);
+
+    // 调研子代理：白名单只允许 web_search / open_page，结果作为 tool result 回注主链路
+    SubAgentService subAgent = scope.ServiceProvider.GetRequiredService<SubAgentService>();
+    registry.RegisterExecutor("delegate_research", (args, toolContext) =>
+    {
+        JsonObject? param = ToolRegistry.ParseArguments(args);
+        string? task = param?["task"]?.GetValue<string>();
+        return subAgent.RunAsync(task ?? "", toolContext);
+    });
 
     // 启动即加载 SayNo 词表（首次运行自动生成默认 sayno.json，便于用户直接编辑）
     _ = scope.ServiceProvider.GetRequiredService<SayNoWordsService>().Current;

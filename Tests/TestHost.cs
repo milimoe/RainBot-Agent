@@ -63,6 +63,7 @@ public static class TestHost
         services.AddSingleton<ContextRecorder>();
         services.AddSingleton<VisionImageLoader>();
         services.AddSingleton<ReActLoop>();
+        services.AddSingleton<SubAgentService>();
         services.AddSingleton<InputFilter>();
         services.AddSingleton<OutputFilter>();
         services.AddSingleton<PassiveTrigger>();

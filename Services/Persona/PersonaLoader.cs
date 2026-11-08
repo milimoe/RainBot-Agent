@@ -1,4 +1,5 @@
 using RainBot.Services.Bots;
+using RainBot.Services.Workflow;
 
 namespace RainBot.Services.Persona;
 
@@ -43,6 +44,11 @@ public class PersonaLoader(PromptSettingsService prompts, PersonaCatalog catalog
         }
         return BuildSystemPrompt(persona, settings);
     }
+    /// <summary>
+    /// 系统能力段固定拼在最末尾：排在人设正文与 prompt.json 铁律之后，
+    /// 因此管理员在人设里写「只回一次」也不会覆盖多段能力（只影响模型是否选择分段）。
+    /// 该段是静态文本，不随配置开关变化，保证 Block A 前缀稳定。
+    /// </summary>
     public static string BuildSystemPrompt(string persona, PromptSettings settings) =>
-        $"{settings.Intro.Replace("{name}", settings.BotName)}\n\n【{settings.PersonaSectionTitle}】\n{persona.Trim()}\n\n【{settings.RulesSectionTitle}】\n{string.Join("\n", settings.Rules.Select((r, i) => $"{i + 1}. {r}"))}\n\n【{settings.IdentitySectionTitle}】\n{string.Join("\n", settings.IdentityNotes)}";
+        $"{settings.Intro.Replace("{name}", settings.BotName)}\n\n【{settings.PersonaSectionTitle}】\n{persona.Trim()}\n\n【{settings.RulesSectionTitle}】\n{string.Join("\n", settings.Rules.Select((r, i) => $"{i + 1}. {r}"))}\n\n【{settings.IdentitySectionTitle}】\n{string.Join("\n", settings.IdentityNotes)}\n\n{ReplySegment.CapabilitySection}";
 }
